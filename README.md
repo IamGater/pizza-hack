@@ -62,15 +62,6 @@ Run after launching the game.
 
 ------------------------------------------------------------------------
 
-## 🔮 Future Improvements
-
--   Auto pointer rescanner\
--   Real ESP / Aimbot\
--   Hotkeys\
--   Config saving
-
-------------------------------------------------------------------------
-
 ## 🧠 Code Structure Overview
 
 ### Process Connection
@@ -96,3 +87,11 @@ Stored in:
 -   Weapon\
 -   Misc (working features)
 
+------------------------------------------------------------------------
+
+## 🔮 Future Improvements
+
+-   Auto pointer rescanner\
+-   Real ESP / Aimbot\
+-   Hotkeys\
+-   Config saving
