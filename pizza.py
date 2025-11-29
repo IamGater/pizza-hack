@@ -1,3 +1,6 @@
+import ctypes
+ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
+
 import tkinter as tk
 import customtkinter as ctk
 import pymem
@@ -17,13 +20,20 @@ root.geometry("900x550")
 # ---------------------------------------------------------
 # PYMEM INIT
 # ---------------------------------------------------------
-pm = pymem.Pymem("PirateFS-Win64-Shipping.exe")
-module_base = pymem.process.module_from_name(
-    pm.process_handle, "PirateFS-Win64-Shipping.exe"
-).lpBaseOfDll
+print("Connecting to the game...")
+
+try:
+    pm = pymem.Pymem("PirateFS-Win64-Shipping.exe")
+    module_base = pymem.process.module_from_name(pm.process_handle,
+                                                 "PirateFS-Win64-Shipping.exe").lpBaseOfDll
+    print("Connected to PirateFS!")
+except Exception as e:
+    print(f"Failed to connect: {e}")
+    raise SystemExit
+
 
 # ---------------------------------------------------------
-# POINTER CHAIN RESOLVER
+# POINTER CHAIN RESOLVER (SAFE)
 # ---------------------------------------------------------
 def resolve_ptr_chain(
         pm: pymem.Pymem,
@@ -43,26 +53,81 @@ def resolve_ptr_chain(
     last = offsets[-1]
     return addr + last if final_add_only else read_ptr(addr + last)
 
+
+def safe_resolve(base: int, offsets: Iterable[int]):
+    try:
+        return resolve_ptr_chain(pm, base, offsets)
+    except Exception:
+        return None
+
+
 # ---------------------------------------------------------
-# DYNAMIC BANANA POINTER CHAIN
+# BANANAS POINTER
 # ---------------------------------------------------------
 banana_ptr_base = module_base + 0x05A38E78
 banana_offsets = [0x10, 0x58, 0x20, 0x1F8, 0xB0, 0xA0, 0xC54]
 
 def set_bananas_dynamic(amount: int):
-    final_addr = resolve_ptr_chain(pm, banana_ptr_base, banana_offsets)
-    pm.write_int(final_addr, amount)
-    return f"Bananas set to {amount} 🍌"
+    final_addr = safe_resolve(banana_ptr_base, banana_offsets)
+
+    if final_addr is None:
+        print("Bananas pointer chain broken")
+        return False
+
+    try:
+        pm.write_int(final_addr, amount)
+        print(f"Bananas set to {amount}")
+        return True
+    except Exception as e:
+        print(f"Bananas write failed: {e}")
+        return False
+
 
 # ---------------------------------------------------------
-# HEADER
+# WEAPON POINTERS
+# ---------------------------------------------------------
+WEAPON_POINTERS = {
+    "Pistol": {
+        "base": module_base + 0x05A38E78,
+        "offsets": [0x118, 0x20, 0x20, 0x150, 0x8, 0x1E0, 0x9C8],
+    },
+    "Sniper": {
+        "base": module_base + 0x05690DF0,
+        "offsets": [0x120, 0x710, 0x20, 0x258, 0x268, 0xA0, 0x9F4],
+    },
+    "Blunderbuss": {
+        "base": module_base + 0x059AC138,
+        "offsets": [0x18, 0x8, 0x18, 0x84, 0x70, 0x20, 0x9F8],
+    },
+}
+
+def set_ammo_dynamic(weapon: str, amount: int):
+    data = WEAPON_POINTERS[weapon]
+    final_addr = safe_resolve(data["base"], data["offsets"])
+
+    if final_addr is None:
+        print(f"{weapon} pointer chain broken")
+        return False
+
+    try:
+        pm.write_int(final_addr, amount)
+        print(f"{weapon} ammo set to {amount}")
+        return True
+    except Exception as e:
+        print(f"{weapon} write failed: {e}")
+        return False
+
+
+# ---------------------------------------------------------
+# HEADER UI
 # ---------------------------------------------------------
 header = ctk.CTkLabel(root,
                       text="Pizza Mega Hack 🍕",
-                      font=ctk.CTkFont(size=80, weight="bold"),  # Увеличен размер шрифта
+                      font=ctk.CTkFont(size=50, weight="bold"),
                       fg_color="#0077CC",
-                      height=100)
+                      height=80)
 header.pack(fill="x")
+
 
 # ---------------------------------------------------------
 # MAIN AREA
@@ -76,8 +141,9 @@ left_menu.pack(side="left", fill="y")
 right_panel = ctk.CTkFrame(main_area, fg_color="black")
 right_panel.pack(side="right", fill="both", expand=True)
 
+
 # ---------------------------------------------------------
-# NAVIGATION
+# PAGE SYSTEM
 # ---------------------------------------------------------
 def show_page(page):
     for widget in right_panel.winfo_children():
@@ -90,6 +156,7 @@ def show_page(page):
     elif page == "Player":
         build_player_page()
 
+
 menu_buttons = ["Player", "Weapon", "Misc"]
 
 for b in menu_buttons:
@@ -97,9 +164,10 @@ for b in menu_buttons:
                   text=b,
                   height=45,
                   corner_radius=8,
-                  font=ctk.CTkFont(size=22, weight="bold"),  # Увеличен размер шрифта кнопок
+                  font=ctk.CTkFont(size=22, weight="bold"),
                   command=lambda p=b: show_page(p)
                   ).pack(fill="x", padx=15, pady=10)
+
 
 # ---------------------------------------------------------
 # PLAYER PAGE
@@ -108,8 +176,9 @@ def build_player_page():
     content = ctk.CTkFrame(right_panel, fg_color="black")
     content.pack(pady=30, padx=20, anchor="nw")
 
-    chk_bone_esp = ctk.CTkCheckBox(content, text="Bone ESP 💀", font=ctk.CTkFont(size=18))  # Увеличен размер шрифта
-    chk_bone_esp.pack(anchor="w", pady=10, padx=10)
+    ctk.CTkCheckBox(content, text="Bone ESP 💀",
+                    font=ctk.CTkFont(size=18)).pack(anchor="w", pady=10, padx=10)
+
 
 # ---------------------------------------------------------
 # WEAPON PAGE
@@ -118,14 +187,15 @@ def build_weapon_page():
     content = ctk.CTkFrame(right_panel, fg_color="black")
     content.pack(pady=30, padx=20, anchor="nw")
 
-    chk_silent_aimbot = ctk.CTkCheckBox(content, text="Silent Aimbot 🎯", font=ctk.CTkFont(size=18))  # Увеличен размер шрифта
-    chk_silent_aimbot.pack(anchor="w", pady=10, padx=10)
+    ctk.CTkCheckBox(content, text="Silent Aimbot 🎯",
+                    font=ctk.CTkFont(size=18)).pack(anchor="w", pady=10, padx=10)
 
-    chk_machinegun = ctk.CTkCheckBox(content, text="Machinegun 🔫", font=ctk.CTkFont(size=18))  # Увеличен размер шрифта
-    chk_machinegun.pack(anchor="w", pady=10, padx=10)
+    ctk.CTkCheckBox(content, text="Machinegun 🔫",
+                    font=ctk.CTkFont(size=18)).pack(anchor="w", pady=10, padx=10)
+
 
 # ---------------------------------------------------------
-# MISC PAGE (bananas and weapon ammo)
+# MISC PAGE (BANANAS + AMMO)
 # ---------------------------------------------------------
 def build_misc_page():
     content = ctk.CTkFrame(right_panel, fg_color="black")
@@ -135,58 +205,78 @@ def build_misc_page():
     row_banana = ctk.CTkFrame(content, fg_color="black")
     row_banana.pack(pady=10, anchor="w")
 
-    entry_banana = ctk.CTkEntry(row_banana, width=200, placeholder_text="Amount", font=ctk.CTkFont(size=18))  # Увеличен размер шрифта
+    entry_banana = ctk.CTkEntry(row_banana, width=200, placeholder_text="Banana amount",
+                                font=ctk.CTkFont(size=18))
     entry_banana.pack(side="left", padx=10)
 
     def add_bananas():
         try:
             value = int(entry_banana.get())
             set_bananas_dynamic(value)
-            print(f"Bananas set to {value} 🍌")
-        except Exception as e:
-            print("Failed to set bananas:", e)
+        except ValueError:
+            print("Bananas: invalid number")
 
-    ctk.CTkButton(row_banana, text="ADD", width=80, corner_radius=8, font=ctk.CTkFont(size=18), command=add_bananas).pack(side="left", padx=10)
-    ctk.CTkLabel(row_banana, text="Add bananas 🍌", font=ctk.CTkFont(size=20)).pack(side="left", padx=10)
+    ctk.CTkButton(row_banana, text="Set", width=80,
+                  font=ctk.CTkFont(size=18),
+                  command=add_bananas).pack(side="left", padx=10)
 
-    # ---------------- AMMO -----------------
+    ctk.CTkLabel(row_banana, text="Bananas 🍌",
+                 font=ctk.CTkFont(size=20)).pack(side="left", padx=10)
+
+
+    # ---------------- AMMO (UNIVERSAL HANDLER) -----------------
     def add_ammo(weapon: str, entry_widget: ctk.CTkEntry):
         try:
             value = int(entry_widget.get())
-            print(f"Adding {value} {weapon} ammo 🧨")
-            # Here, you should write the code to apply the ammo to the game using the appropriate function
-            # For example: set_ammo_dynamic(weapon, value)
-        except Exception as e:
-            print(f"Failed to add {weapon} ammo:", e)
+            set_ammo_dynamic(weapon, value)
+        except ValueError:
+            print(f"{weapon}: invalid number")
 
-    # ---------------- BLUNDERBUSS AMMO -----------------
-    row_blunderbuss = ctk.CTkFrame(content, fg_color="black")
-    row_blunderbuss.pack(pady=10, anchor="w")
+    # --- BLUNDERBUSS ---
+    row_blunder = ctk.CTkFrame(content, fg_color="black")
+    row_blunder.pack(pady=10, anchor="w")
 
-    entry_blunderbuss = ctk.CTkEntry(row_blunderbuss, width=200, placeholder_text="Blunderbuss Ammo", font=ctk.CTkFont(size=18))  # Увеличен размер шрифта
-    entry_blunderbuss.pack(side="left", padx=10)
-    ctk.CTkButton(row_blunderbuss, text="Add", width=80, corner_radius=8, font=ctk.CTkFont(size=18),
-                  command=lambda: add_ammo("Blunderbuss", entry_blunderbuss)).pack(side="left", padx=10)
-    ctk.CTkLabel(row_blunderbuss, text="Add Blunderbuss Ammo 🧨", font=ctk.CTkFont(size=20)).pack(side="left", padx=10)
+    entry_blunder = ctk.CTkEntry(row_blunder, width=200, placeholder_text="Blunderbuss Ammo",
+                                 font=ctk.CTkFont(size=18))
+    entry_blunder.pack(side="left", padx=10)
 
-    # ---------------- SNIPER AMMO -----------------
+    ctk.CTkButton(row_blunder, text="Set", width=80,
+                  font=ctk.CTkFont(size=18),
+                  command=lambda: add_ammo("Blunderbuss", entry_blunder)).pack(side="left", padx=10)
+
+    ctk.CTkLabel(row_blunder, text="Blunderbuss Ammo 🧨",
+                 font=ctk.CTkFont(size=20)).pack(side="left", padx=10)
+
+    # --- SNIPER ---
     row_sniper = ctk.CTkFrame(content, fg_color="black")
     row_sniper.pack(pady=10, anchor="w")
 
-    entry_sniper = ctk.CTkEntry(row_sniper, width=200, placeholder_text="Sniper Ammo", font=ctk.CTkFont(size=18))  # Увеличен размер шрифта
+    entry_sniper = ctk.CTkEntry(row_sniper, width=200, placeholder_text="Sniper Ammo",
+                                font=ctk.CTkFont(size=18))
     entry_sniper.pack(side="left", padx=10)
-    ctk.CTkButton(row_sniper, text="Add", width=80, corner_radius=8, font=ctk.CTkFont(size=18),
-                  command=lambda: add_ammo("Sniper", entry_sniper)).pack(side="left", padx=10)
-    ctk.CTkLabel(row_sniper, text="Add Sniper Ammo 🔫", font=ctk.CTkFont(size=20)).pack(side="left", padx=10)
 
-    # ---------------- PISTOL AMMO -----------------
+    ctk.CTkButton(row_sniper, text="Set", width=80,
+                  font=ctk.CTkFont(size=18),
+                  command=lambda: add_ammo("Sniper", entry_sniper)).pack(side="left", padx=10)
+
+    ctk.CTkLabel(row_sniper, text="Sniper Ammo 🔫",
+                 font=ctk.CTkFont(size=20)).pack(side="left", padx=10)
+
+    # --- PISTOL ---
     row_pistol = ctk.CTkFrame(content, fg_color="black")
     row_pistol.pack(pady=10, anchor="w")
 
-    entry_pistol = ctk.CTkEntry(row_pistol, width=200, placeholder_text="Pistol Ammo", font=ctk.CTkFont(size=18))  # Увеличен размер шрифта
+    entry_pistol = ctk.CTkEntry(row_pistol, width=200, placeholder_text="Pistol Ammo",
+                                font=ctk.CTkFont(size=18))
     entry_pistol.pack(side="left", padx=10)
-    ctk.CTkButton(row_pistol, text="Add", width=80, corner_radius=8, font=ctk.CTkFont(size=18),
-                  command=lambda: add_ammo("Pistol", entry_pistol)).pack(side="left", padx=10)
-    ctk.CTkLabel(row_pistol, text="Add Pistol Ammo 🔫", font=ctk.CTkFont(size=20)).pack(side="left", padx=10)
 
+    ctk.CTkButton(row_pistol, text="Set", width=80,
+                  font=ctk.CTkFont(size=18),
+                  command=lambda: add_ammo("Pistol", entry_pistol)).pack(side="left", padx=10)
+
+    ctk.CTkLabel(row_pistol, text="Pistol Ammo 🔫",
+                 font=ctk.CTkFont(size=20)).pack(side="left", padx=10)
+
+
+# ---------------------------------------------------------
 root.mainloop()
