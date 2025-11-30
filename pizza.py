@@ -1,5 +1,5 @@
-import ctypes
-ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
+# import ctypes
+# ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
 
 import tkinter as tk
 import customtkinter as ctk
@@ -71,15 +71,37 @@ def set_bananas_dynamic(amount: int):
     final_addr = safe_resolve(banana_ptr_base, banana_offsets)
 
     if final_addr is None:
-        print("Bananas pointer chain broken")
+        print("Bananas pointer chain broken 💀")
         return False
 
     try:
         pm.write_int(final_addr, amount)
-        print(f"Bananas set to {amount}")
+        print(f"Bananas set to {amount} 🍌")
         return True
     except Exception as e:
         print(f"Bananas write failed: {e}")
+        return False
+
+
+# ---------------------------------------------------------
+# BLUNDERBOMBS POINTER (новый)
+# ---------------------------------------------------------
+blunderbomb_ptr_base = module_base + 0x05902F18
+blunderbomb_offsets = [0x30, 0x0, 0xC170, 0x40, 0x340, 0x10, 0x126C]
+
+def set_blunderbombs_dynamic(amount: int):
+    final_addr = safe_resolve(blunderbomb_ptr_base, blunderbomb_offsets)
+
+    if final_addr is None:
+        print("Blunderbombs pointer chain broken 💣")
+        return False
+
+    try:
+        pm.write_int(final_addr, amount)
+        print(f"Blunderbombs set to {amount} 💥")
+        return True
+    except Exception as e:
+        print(f"Blunderbombs write failed: {e}")
         return False
 
 
@@ -106,12 +128,12 @@ def set_ammo_dynamic(weapon: str, amount: int):
     final_addr = safe_resolve(data["base"], data["offsets"])
 
     if final_addr is None:
-        print(f"{weapon} pointer chain broken")
+        print(f"{weapon} pointer chain broken 💥")
         return False
 
     try:
         pm.write_int(final_addr, amount)
-        print(f"{weapon} ammo set to {amount}")
+        print(f"{weapon} ammo set to {amount} 🔫")
         return True
     except Exception as e:
         print(f"{weapon} write failed: {e}")
@@ -195,7 +217,7 @@ def build_weapon_page():
 
 
 # ---------------------------------------------------------
-# MISC PAGE (BANANAS + AMMO)
+# MISC PAGE (BANANAS + BLUNDERBOMBS + AMMO)
 # ---------------------------------------------------------
 def build_misc_page():
     content = ctk.CTkFrame(right_panel, fg_color="black")
@@ -214,7 +236,7 @@ def build_misc_page():
             value = int(entry_banana.get())
             set_bananas_dynamic(value)
         except ValueError:
-            print("Bananas: invalid number")
+            print("Bananas: invalid number ❌")
 
     ctk.CTkButton(row_banana, text="Set", width=80,
                   font=ctk.CTkFont(size=18),
@@ -223,6 +245,38 @@ def build_misc_page():
     ctk.CTkLabel(row_banana, text="Bananas 🍌",
                  font=ctk.CTkFont(size=20)).pack(side="left", padx=10)
 
+    # ---------------- BLUNDERBOMBS (новый) -----------------
+    row_blunderbombs = ctk.CTkFrame(content, fg_color="black")
+    row_blunderbombs.pack(pady=10, anchor="w")
+
+    entry_blunderbombs = ctk.CTkEntry(
+        row_blunderbombs,
+        width=200,
+        placeholder_text="Blunderbombs amount",
+        font=ctk.CTkFont(size=18)
+    )
+    entry_blunderbombs.pack(side="left", padx=10)
+
+    def add_blunderbombs():
+        try:
+            value = int(entry_blunderbombs.get())
+            set_blunderbombs_dynamic(value)
+        except ValueError:
+            print("Blunderbombs: invalid number ❌")
+
+    ctk.CTkButton(
+        row_blunderbombs,
+        text="Set",
+        width=80,
+        font=ctk.CTkFont(size=18),
+        command=add_blunderbombs
+    ).pack(side="left", padx=10)
+
+    ctk.CTkLabel(
+        row_blunderbombs,
+        text="Blunderbombs 💣",
+        font=ctk.CTkFont(size=20)
+    ).pack(side="left", padx=10)
 
     # ---------------- AMMO (UNIVERSAL HANDLER) -----------------
     def add_ammo(weapon: str, entry_widget: ctk.CTkEntry):
@@ -230,7 +284,7 @@ def build_misc_page():
             value = int(entry_widget.get())
             set_ammo_dynamic(weapon, value)
         except ValueError:
-            print(f"{weapon}: invalid number")
+            print(f"{weapon}: invalid number ❌")
 
     # --- BLUNDERBUSS ---
     row_blunder = ctk.CTkFrame(content, fg_color="black")

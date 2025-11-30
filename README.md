@@ -54,10 +54,10 @@ Run after launching the game.
 
 ## 🚀 How to Use
 
-1.  Launch PirateFS\
-2.  Run script\
-3.  Wait for connection\
-4.  Open Misc page\
+1.  Launch PirateFS
+2.  Run script
+3.  Wait for connection
+4.  Open Misc page
 5.  Set bananas/ammo
 
 ------------------------------------------------------------------------
