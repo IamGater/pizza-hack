@@ -6,6 +6,8 @@ import customtkinter as ctk
 import pymem
 from tkinter import ttk
 from typing import Iterable
+import threading
+import time
 
 # ---------------------------------------------------------
 # CONFIG
@@ -24,13 +26,13 @@ print("Connecting to the game...")
 
 try:
     pm = pymem.Pymem("PirateFS-Win64-Shipping.exe")
-    module_base = pymem.process.module_from_name(pm.process_handle,
-                                                 "PirateFS-Win64-Shipping.exe").lpBaseOfDll
+    module_base = pymem.process.module_from_name(
+        pm.process_handle, "PirateFS-Win64-Shipping.exe"
+    ).lpBaseOfDll
     print("Connected to PirateFS!")
 except Exception as e:
     print(f"Failed to connect: {e}")
     raise SystemExit
-
 
 # ---------------------------------------------------------
 # POINTER CHAIN RESOLVER (SAFE)
@@ -84,7 +86,7 @@ def set_bananas_dynamic(amount: int):
 
 
 # ---------------------------------------------------------
-# BLUNDERBOMBS POINTER (новый)
+# BLUNDERBOMBS POINTER
 # ---------------------------------------------------------
 blunderbomb_ptr_base = module_base + 0x05902F18
 blunderbomb_offsets = [0x30, 0x0, 0xC170, 0x40, 0x340, 0x10, 0x126C]
@@ -141,6 +143,35 @@ def set_ammo_dynamic(weapon: str, amount: int):
 
 
 # ---------------------------------------------------------
+# GODMODE POINTER
+# ---------------------------------------------------------
+HEALTH_BASE_OFFSET = 0x05A1AC58
+HEALTH_POINTER_CHAIN = [0x110, 0x5E0, 0xA8, 0x288, 0x50, 0xA0, 0x954]
+
+godmode_enabled = False
+health_final_addr = None
+
+
+def resolve_chain_simple(pm, base, chain):
+    addr = base
+    for off in chain:
+        addr = pm.read_longlong(addr) + off
+    return addr
+
+
+def godmode_loop():
+    global godmode_enabled, health_final_addr
+    while True:
+        if godmode_enabled and health_final_addr:
+            try:
+                pm.write_int(health_final_addr, 1079246848)  # HP float encoded to int
+            except:
+                pass
+        time.sleep(0.03)
+
+threading.Thread(target=godmode_loop, daemon=True).start()
+
+# ---------------------------------------------------------
 # HEADER UI
 # ---------------------------------------------------------
 header = ctk.CTkLabel(root,
@@ -149,7 +180,6 @@ header = ctk.CTkLabel(root,
                       fg_color="#0077CC",
                       height=80)
 header.pack(fill="x")
-
 
 # ---------------------------------------------------------
 # MAIN AREA
@@ -162,7 +192,6 @@ left_menu.pack(side="left", fill="y")
 
 right_panel = ctk.CTkFrame(main_area, fg_color="black")
 right_panel.pack(side="right", fill="both", expand=True)
-
 
 # ---------------------------------------------------------
 # PAGE SYSTEM
@@ -178,15 +207,9 @@ def show_page(page):
     elif page == "Player":
         build_player_page()
 
-
-menu_buttons = ["Player", "Weapon", "Misc"]
-
-for b in menu_buttons:
-    ctk.CTkButton(left_menu,
-                  text=b,
-                  height=45,
-                  corner_radius=8,
-                  font=ctk.CTkFont(size=22, weight="bold"),
+for b in ["Player", "Weapon", "Misc"]:
+    ctk.CTkButton(left_menu, text=b, height=45,
+                  corner_radius=8, font=ctk.CTkFont(size=22, weight="bold"),
                   command=lambda p=b: show_page(p)
                   ).pack(fill="x", padx=15, pady=10)
 
@@ -217,7 +240,7 @@ def build_weapon_page():
 
 
 # ---------------------------------------------------------
-# MISC PAGE (BANANAS + BLUNDERBOMBS + AMMO)
+# MISC PAGE + GODMODE
 # ---------------------------------------------------------
 def build_misc_page():
     content = ctk.CTkFrame(right_panel, fg_color="black")
@@ -231,21 +254,15 @@ def build_misc_page():
                                 font=ctk.CTkFont(size=18))
     entry_banana.pack(side="left", padx=10)
 
-    def add_bananas():
-        try:
-            value = int(entry_banana.get())
-            set_bananas_dynamic(value)
-        except ValueError:
-            print("Bananas: invalid number ❌")
-
     ctk.CTkButton(row_banana, text="Set", width=80,
                   font=ctk.CTkFont(size=18),
-                  command=add_bananas).pack(side="left", padx=10)
+                  command=lambda: set_bananas_dynamic(int(entry_banana.get()))
+                  ).pack(side="left", padx=10)
 
     ctk.CTkLabel(row_banana, text="Bananas 🍌",
                  font=ctk.CTkFont(size=20)).pack(side="left", padx=10)
 
-    # ---------------- BLUNDERBOMBS (новый) -----------------
+    # ---------------- BLUNDERBOMBS -----------------
     row_blunderbombs = ctk.CTkFrame(content, fg_color="black")
     row_blunderbombs.pack(pady=10, anchor="w")
 
@@ -257,19 +274,12 @@ def build_misc_page():
     )
     entry_blunderbombs.pack(side="left", padx=10)
 
-    def add_blunderbombs():
-        try:
-            value = int(entry_blunderbombs.get())
-            set_blunderbombs_dynamic(value)
-        except ValueError:
-            print("Blunderbombs: invalid number ❌")
-
     ctk.CTkButton(
         row_blunderbombs,
         text="Set",
         width=80,
         font=ctk.CTkFont(size=18),
-        command=add_blunderbombs
+        command=lambda: set_blunderbombs_dynamic(int(entry_blunderbombs.get()))
     ).pack(side="left", padx=10)
 
     ctk.CTkLabel(
@@ -278,7 +288,7 @@ def build_misc_page():
         font=ctk.CTkFont(size=20)
     ).pack(side="left", padx=10)
 
-    # ---------------- AMMO (UNIVERSAL HANDLER) -----------------
+    # ---------------- AMMO BLOCKS -----------------
     def add_ammo(weapon: str, entry_widget: ctk.CTkEntry):
         try:
             value = int(entry_widget.get())
@@ -286,7 +296,7 @@ def build_misc_page():
         except ValueError:
             print(f"{weapon}: invalid number ❌")
 
-    # --- BLUNDERBUSS ---
+    # Blunderbuss
     row_blunder = ctk.CTkFrame(content, fg_color="black")
     row_blunder.pack(pady=10, anchor="w")
 
@@ -301,7 +311,7 @@ def build_misc_page():
     ctk.CTkLabel(row_blunder, text="Blunderbuss Ammo 🧨",
                  font=ctk.CTkFont(size=20)).pack(side="left", padx=10)
 
-    # --- SNIPER ---
+    # Sniper
     row_sniper = ctk.CTkFrame(content, fg_color="black")
     row_sniper.pack(pady=10, anchor="w")
 
@@ -316,7 +326,7 @@ def build_misc_page():
     ctk.CTkLabel(row_sniper, text="Sniper Ammo 🔫",
                  font=ctk.CTkFont(size=20)).pack(side="left", padx=10)
 
-    # --- PISTOL ---
+    # Pistol
     row_pistol = ctk.CTkFrame(content, fg_color="black")
     row_pistol.pack(pady=10, anchor="w")
 
@@ -331,6 +341,19 @@ def build_misc_page():
     ctk.CTkLabel(row_pistol, text="Pistol Ammo 🔫",
                  font=ctk.CTkFont(size=20)).pack(side="left", padx=10)
 
+     # ---------------- GODMODE -----------------
+    def toggle_godmode():
+        global godmode_enabled
+        godmode_enabled = bool(godmode_checkbox.get())
+        print("Godmode ON ❤️‍🔥" if godmode_enabled else "Godmode OFF ❌")
+
+    godmode_checkbox = ctk.CTkCheckBox(
+        content,
+        text="Godmode ❤️",
+        font=ctk.CTkFont(size=20),
+        command=toggle_godmode
+    )
+    godmode_checkbox.pack(anchor="w", pady=20, padx=20)
 
 # ---------------------------------------------------------
 root.mainloop()
