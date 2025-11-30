@@ -1,6 +1,5 @@
-# import ctypes
-# ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
-
+import ctypes
+import sys
 import tkinter as tk
 import customtkinter as ctk
 import pymem
@@ -8,6 +7,9 @@ from tkinter import ttk
 from typing import Iterable
 import threading
 import time
+
+sys.stdout.reconfigure(encoding='utf-8')
+# ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
 
 # ---------------------------------------------------------
 # CONFIG
@@ -22,16 +24,16 @@ root.geometry("900x550")
 # ---------------------------------------------------------
 # PYMEM INIT
 # ---------------------------------------------------------
-print("Connecting to the game...")
+print("Connecting to the game... ⌛")
 
 try:
     pm = pymem.Pymem("PirateFS-Win64-Shipping.exe")
     module_base = pymem.process.module_from_name(
         pm.process_handle, "PirateFS-Win64-Shipping.exe"
     ).lpBaseOfDll
-    print("Connected to PirateFS!")
+    print("Connected to PirateFS! ✅")
 except Exception as e:
-    print(f"Failed to connect: {e}")
+    print(f"Failed to connect: {e} ❌")
     raise SystemExit
 
 # ---------------------------------------------------------
@@ -73,7 +75,7 @@ def set_bananas_dynamic(amount: int):
     final_addr = safe_resolve(banana_ptr_base, banana_offsets)
 
     if final_addr is None:
-        print("Bananas pointer chain broken 💀")
+        print("Bananas pointer chain broken ❌")
         return False
 
     try:
@@ -81,7 +83,7 @@ def set_bananas_dynamic(amount: int):
         print(f"Bananas set to {amount} 🍌")
         return True
     except Exception as e:
-        print(f"Bananas write failed: {e}")
+        print(f"Bananas write failed: {e} ❌")
         return False
 
 
@@ -95,15 +97,15 @@ def set_blunderbombs_dynamic(amount: int):
     final_addr = safe_resolve(blunderbomb_ptr_base, blunderbomb_offsets)
 
     if final_addr is None:
-        print("Blunderbombs pointer chain broken 💣")
+        print("Blunderbombs pointer chain broken ❌")
         return False
 
     try:
         pm.write_int(final_addr, amount)
-        print(f"Blunderbombs set to {amount} 💥")
+        print(f"Blunderbombs set to {amount} 💣")
         return True
     except Exception as e:
-        print(f"Blunderbombs write failed: {e}")
+        print(f"Blunderbombs write failed: {e} ❌")
         return False
 
 
@@ -130,7 +132,7 @@ def set_ammo_dynamic(weapon: str, amount: int):
     final_addr = safe_resolve(data["base"], data["offsets"])
 
     if final_addr is None:
-        print(f"{weapon} pointer chain broken 💥")
+        print(f"{weapon} pointer chain broken ❌")
         return False
 
     try:
@@ -138,7 +140,7 @@ def set_ammo_dynamic(weapon: str, amount: int):
         print(f"{weapon} ammo set to {amount} 🔫")
         return True
     except Exception as e:
-        print(f"{weapon} write failed: {e}")
+        print(f"{weapon} write failed: {e} ❌")
         return False
 
 
@@ -151,25 +153,31 @@ HEALTH_POINTER_CHAIN = [0x110, 0x5E0, 0xA8, 0x288, 0x50, 0xA0, 0x954]
 godmode_enabled = False
 health_final_addr = None
 
-
 def resolve_chain_simple(pm, base, chain):
-    addr = base
-    for off in chain:
-        addr = pm.read_longlong(addr) + off
-    return addr
+    addr = pm.read_longlong(base)
+    for off in chain[:-1]:
+        addr = pm.read_longlong(addr + off)
+    return addr + chain[-1]
 
+# init HP address
+try:
+    health_final_addr = resolve_chain_simple(pm, module_base + HEALTH_BASE_OFFSET, HEALTH_POINTER_CHAIN)
+    print("Godmode health addr =", hex(health_final_addr), "✅")
+except Exception as e:
+    print("Failed to resolve HP pointer:", e, "❌")
 
 def godmode_loop():
     global godmode_enabled, health_final_addr
     while True:
         if godmode_enabled and health_final_addr:
             try:
-                pm.write_int(health_final_addr, 1079246848)  # HP float encoded to int
+                pm.write_int(health_final_addr, 1079246848)
             except:
                 pass
         time.sleep(0.03)
 
 threading.Thread(target=godmode_loop, daemon=True).start()
+
 
 # ---------------------------------------------------------
 # HEADER UI
@@ -221,7 +229,7 @@ def build_player_page():
     content = ctk.CTkFrame(right_panel, fg_color="black")
     content.pack(pady=30, padx=20, anchor="nw")
 
-    ctk.CTkCheckBox(content, text="Bone ESP 💀",
+    ctk.CTkCheckBox(content, text="ESP 💀",
                     font=ctk.CTkFont(size=18)).pack(anchor="w", pady=10, padx=10)
 
 
@@ -232,7 +240,7 @@ def build_weapon_page():
     content = ctk.CTkFrame(right_panel, fg_color="black")
     content.pack(pady=30, padx=20, anchor="nw")
 
-    ctk.CTkCheckBox(content, text="Silent Aimbot 🎯",
+    ctk.CTkCheckBox(content, text="Aimbot 🎯",
                     font=ctk.CTkFont(size=18)).pack(anchor="w", pady=10, padx=10)
 
     ctk.CTkCheckBox(content, text="Machinegun 🔫",
@@ -349,7 +357,7 @@ def build_misc_page():
 
     godmode_checkbox = ctk.CTkCheckBox(
         content,
-        text="Godmode ❤️",
+        text="Godmode ❤️‍🔥",
         font=ctk.CTkFont(size=20),
         command=toggle_godmode
     )
