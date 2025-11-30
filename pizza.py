@@ -16,7 +16,7 @@ ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
 root = ctk.CTk()
-root.title("Mod Menu")
+root.title("PMH")
 root.geometry("900x550")
 
 # ---------------------------------------------------------
@@ -112,12 +112,12 @@ def set_blunderbombs_dynamic(amount: int):
 # ---------------------------------------------------------
 WEAPON_POINTERS = {
     "Pistol": {
-        "base": module_base + 0x05A38E78,
-        "offsets": [0x118, 0x20, 0x20, 0x150, 0x8, 0x1E0, 0x9C8],
+        "base": module_base + 0x056E5E10,
+        "offsets": [0x0, 0x1F8, 0x240, 0x520, 0x268, 0x18, 0x87C],
     },
     "Sniper": {
-        "base": module_base + 0x05690DF0,
-        "offsets": [0x120, 0x710, 0x20, 0x258, 0x268, 0xA0, 0x9F4],
+        "base": module_base + 0x05A38E78,
+        "offsets": [0x30, 0xA0, 0x6D8, 0x20, 0x818, 0xA0, 0x9F4],
     },
     "Blunderbuss": {
         "base": module_base + 0x059AC138,
