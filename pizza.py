@@ -68,8 +68,8 @@ def safe_resolve(base: int, offsets: Iterable[int]):
 # ---------------------------------------------------------
 # BANANAS POINTER
 # ---------------------------------------------------------
-banana_ptr_base = module_base + 0x05A38E78
-banana_offsets = [0x10, 0x58, 0x20, 0x1F8, 0xB0, 0xA0, 0xC54]
+banana_ptr_base = module_base + 0x059B0798
+banana_offsets = [0x0, 0x190, 0x8E8, 0x20, 0x830, 0x20, 0xC74]
 
 def set_bananas_dynamic(amount: int):
     final_addr = safe_resolve(banana_ptr_base, banana_offsets)
@@ -90,8 +90,8 @@ def set_bananas_dynamic(amount: int):
 # ---------------------------------------------------------
 # BLUNDERBOMBS POINTER
 # ---------------------------------------------------------
-blunderbomb_ptr_base = module_base + 0x05902F18
-blunderbomb_offsets = [0x30, 0x0, 0xC170, 0x40, 0x340, 0x10, 0x126C]
+blunderbomb_ptr_base = module_base + 0x05A43A28
+blunderbomb_offsets = [0x10, 0xA0, 0x2C8, 0x1F8, 0xF0, 0xA0, 0x128C]
 
 def set_blunderbombs_dynamic(amount: int):
     final_addr = safe_resolve(blunderbomb_ptr_base, blunderbomb_offsets)
@@ -357,7 +357,7 @@ def build_misc_page():
 
     godmode_checkbox = ctk.CTkCheckBox(
         content,
-        text="Godmode ❤️‍🔥",
+        text="Godmode ❤️",
         font=ctk.CTkFont(size=20),
         command=toggle_godmode
     )
