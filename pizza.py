@@ -135,8 +135,8 @@ def set_ammo_dynamic(weapon: str, amount: int):
 # ---------------------------------------------------------
 # GODMODE
 # ---------------------------------------------------------
-HEALTH_BASE_OFFSET = 0x05A1AC58
-HEALTH_POINTER_CHAIN = [0x110, 0x5E0, 0xA8, 0x288, 0x50, 0xA0, 0x954]
+HEALTH_BASE_OFFSET = 0x05A38FB0
+HEALTH_POINTER_CHAIN = [0x30, 0x50, 0x318, 0x300, 0xA0, 0x50, 0x974]
 
 godmode_enabled = False
 health_final_addr = None
@@ -147,13 +147,9 @@ def resolve_chain_simple(pm, base, chain):
         addr = pm.read_longlong(addr + off)
     return addr + chain[-1]
 
-try:
-    health_final_addr = resolve_chain_simple(
-        pm, module_base + HEALTH_BASE_OFFSET, HEALTH_POINTER_CHAIN
-    )
-    print("Godmode health addr resolved ✅")
-except Exception as e:
-    print("Failed to resolve HP pointer ❌", e)
+health_final_addr = resolve_chain_simple(
+    pm, module_base + HEALTH_BASE_OFFSET, HEALTH_POINTER_CHAIN
+)
 
 def godmode_loop():
     global godmode_enabled
