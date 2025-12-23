@@ -40,30 +40,27 @@ except Exception as e:
 # POINTER CHAIN RESOLVER (SAFE)
 # ---------------------------------------------------------
 def resolve_ptr_chain(
-        pm: pymem.Pymem,
-        start_addr: int,
-        offsets: Iterable[int],
-        *,
-        final_add_only: bool = True,
+    pm: pymem.Pymem,
+    start_addr: int,
+    offsets: Iterable[int],
+    *,
+    final_add_only: bool = True,
 ) -> int:
     is_64 = pymem.process.is_64_bit(pm.process_handle)
     read_ptr = pm.read_ulonglong if is_64 else pm.read_uint
 
     addr = read_ptr(start_addr)
-
     for off in offsets[:-1]:
         addr = read_ptr(addr + off)
 
     last = offsets[-1]
     return addr + last if final_add_only else read_ptr(addr + last)
 
-
 def safe_resolve(base: int, offsets: Iterable[int]):
     try:
         return resolve_ptr_chain(pm, base, offsets)
     except Exception:
         return None
-
 
 # ---------------------------------------------------------
 # BANANAS POINTER
@@ -73,11 +70,9 @@ banana_offsets = [0x0, 0x190, 0x8E8, 0x20, 0x830, 0x20, 0xC74]
 
 def set_bananas_dynamic(amount: int):
     final_addr = safe_resolve(banana_ptr_base, banana_offsets)
-
     if final_addr is None:
         print("Bananas pointer chain broken ❌")
         return False
-
     try:
         pm.write_int(final_addr, amount)
         print(f"Bananas set to {amount} 🍌")
@@ -85,7 +80,6 @@ def set_bananas_dynamic(amount: int):
     except Exception as e:
         print(f"Bananas write failed: {e} ❌")
         return False
-
 
 # ---------------------------------------------------------
 # BLUNDERBOMBS POINTER
@@ -95,11 +89,9 @@ blunderbomb_offsets = [0x10, 0xA0, 0x2C8, 0x1F8, 0xF0, 0xA0, 0x128C]
 
 def set_blunderbombs_dynamic(amount: int):
     final_addr = safe_resolve(blunderbomb_ptr_base, blunderbomb_offsets)
-
     if final_addr is None:
         print("Blunderbombs pointer chain broken ❌")
         return False
-
     try:
         pm.write_int(final_addr, amount)
         print(f"Blunderbombs set to {amount} 💣")
@@ -108,33 +100,30 @@ def set_blunderbombs_dynamic(amount: int):
         print(f"Blunderbombs write failed: {e} ❌")
         return False
 
-
 # ---------------------------------------------------------
 # WEAPON POINTERS
 # ---------------------------------------------------------
 WEAPON_POINTERS = {
     "Pistol": {
-        "base": module_base + 0x056E5E10,
-        "offsets": [0x0, 0x1F8, 0x240, 0x520, 0x268, 0x18, 0x87C],
+        "base": module_base + 0x056E5B40,
+        "offsets": [0x290, 0x20, 0x6B0, 0x20, 0x7A8, 0x20, 0xA10],
     },
     "Sniper": {
-        "base": module_base + 0x05A38E78,
-        "offsets": [0x30, 0xA0, 0x6D8, 0x20, 0x818, 0xA0, 0x9F4],
+        "base": module_base + 0x05A43A28,
+        "offsets": [0x0, 0x20, 0x608, 0x20, 0x770, 0xA0, 0xA14],
     },
     "Blunderbuss": {
-        "base": module_base + 0x059AC138,
-        "offsets": [0x18, 0x8, 0x18, 0x84, 0x70, 0x20, 0x9F8],
+        "base": module_base + 0x05A515E0,
+        "offsets": [0x1B8, 0x10, 0x30, 0xA8, 0x40, 0x2C8, 0xA18],
     },
 }
 
 def set_ammo_dynamic(weapon: str, amount: int):
     data = WEAPON_POINTERS[weapon]
     final_addr = safe_resolve(data["base"], data["offsets"])
-
     if final_addr is None:
         print(f"{weapon} pointer chain broken ❌")
         return False
-
     try:
         pm.write_int(final_addr, amount)
         print(f"{weapon} ammo set to {amount} 🔫")
@@ -143,9 +132,8 @@ def set_ammo_dynamic(weapon: str, amount: int):
         print(f"{weapon} write failed: {e} ❌")
         return False
 
-
 # ---------------------------------------------------------
-# GODMODE POINTER
+# GODMODE
 # ---------------------------------------------------------
 HEALTH_BASE_OFFSET = 0x05A1AC58
 HEALTH_POINTER_CHAIN = [0x110, 0x5E0, 0xA8, 0x288, 0x50, 0xA0, 0x954]
@@ -159,34 +147,59 @@ def resolve_chain_simple(pm, base, chain):
         addr = pm.read_longlong(addr + off)
     return addr + chain[-1]
 
-# init HP address
 try:
-    health_final_addr = resolve_chain_simple(pm, module_base + HEALTH_BASE_OFFSET, HEALTH_POINTER_CHAIN)
-    print("Godmode health addr =", hex(health_final_addr), "✅")
+    health_final_addr = resolve_chain_simple(
+        pm, module_base + HEALTH_BASE_OFFSET, HEALTH_POINTER_CHAIN
+    )
+    print("Godmode health addr resolved ✅")
 except Exception as e:
-    print("Failed to resolve HP pointer:", e, "❌")
+    print("Failed to resolve HP pointer ❌", e)
 
 def godmode_loop():
-    global godmode_enabled, health_final_addr
+    global godmode_enabled
     while True:
         if godmode_enabled and health_final_addr:
             try:
-                pm.write_int(health_final_addr, 1079246848)
+                pm.write_int(health_final_addr, 1079574528)
             except:
                 pass
         time.sleep(0.03)
 
 threading.Thread(target=godmode_loop, daemon=True).start()
 
+# ---------------------------------------------------------
+# >>> ADD: INFINITY AMMO
+# ---------------------------------------------------------
+infinity_ammo_enabled = False
+
+def infinity_ammo_loop():
+    global infinity_ammo_enabled
+    while True:
+        if infinity_ammo_enabled:
+            for weapon in WEAPON_POINTERS:
+                try:
+                    addr = safe_resolve(
+                        WEAPON_POINTERS[weapon]["base"],
+                        WEAPON_POINTERS[weapon]["offsets"]
+                    )
+                    if addr:
+                        pm.write_int(addr, 5)
+                except:
+                    pass
+        time.sleep(0.1)
+
+threading.Thread(target=infinity_ammo_loop, daemon=True).start()
 
 # ---------------------------------------------------------
-# HEADER UI
+# UI HEADER
 # ---------------------------------------------------------
-header = ctk.CTkLabel(root,
-                      text="Pizza Mega Hack 🍕",
-                      font=ctk.CTkFont(size=50, weight="bold"),
-                      fg_color="#0077CC",
-                      height=80)
+header = ctk.CTkLabel(
+    root,
+    text="Pizza Mega Hack 🍕",
+    font=ctk.CTkFont(size=50, weight="bold"),
+    fg_color="#0077CC",
+    height=80
+)
 header.pack(fill="x")
 
 # ---------------------------------------------------------
@@ -207,7 +220,6 @@ right_panel.pack(side="right", fill="both", expand=True)
 def show_page(page):
     for widget in right_panel.winfo_children():
         widget.destroy()
-
     if page == "Misc":
         build_misc_page()
     elif page == "Weapon":
@@ -216,11 +228,14 @@ def show_page(page):
         build_player_page()
 
 for b in ["Player", "Weapon", "Misc"]:
-    ctk.CTkButton(left_menu, text=b, height=45,
-                  corner_radius=8, font=ctk.CTkFont(size=22, weight="bold"),
-                  command=lambda p=b: show_page(p)
-                  ).pack(fill="x", padx=15, pady=10)
-
+    ctk.CTkButton(
+        left_menu,
+        text=b,
+        height=45,
+        corner_radius=8,
+        font=ctk.CTkFont(size=22, weight="bold"),
+        command=lambda p=b: show_page(p)
+    ).pack(fill="x", padx=15, pady=10)
 
 # ---------------------------------------------------------
 # PLAYER PAGE
@@ -228,10 +243,11 @@ for b in ["Player", "Weapon", "Misc"]:
 def build_player_page():
     content = ctk.CTkFrame(right_panel, fg_color="black")
     content.pack(pady=30, padx=20, anchor="nw")
-
-    ctk.CTkCheckBox(content, text="ESP 💀",
-                    font=ctk.CTkFont(size=18)).pack(anchor="w", pady=10, padx=10)
-
+    ctk.CTkCheckBox(
+        content,
+        text="ESP 💀",
+        font=ctk.CTkFont(size=18)
+    ).pack(anchor="w", pady=10, padx=10)
 
 # ---------------------------------------------------------
 # WEAPON PAGE
@@ -239,117 +255,43 @@ def build_player_page():
 def build_weapon_page():
     content = ctk.CTkFrame(right_panel, fg_color="black")
     content.pack(pady=30, padx=20, anchor="nw")
-
-    ctk.CTkCheckBox(content, text="Aimbot 🎯",
-                    font=ctk.CTkFont(size=18)).pack(anchor="w", pady=10, padx=10)
-
-    ctk.CTkCheckBox(content, text="Machinegun 🔫",
-                    font=ctk.CTkFont(size=18)).pack(anchor="w", pady=10, padx=10)
-
+    ctk.CTkCheckBox(content, text="Aimbot 🎯", font=ctk.CTkFont(size=18)).pack(anchor="w", pady=10)
+    ctk.CTkCheckBox(content, text="Machinegun 🔫", font=ctk.CTkFont(size=18)).pack(anchor="w", pady=10)
 
 # ---------------------------------------------------------
-# MISC PAGE + GODMODE
+# MISC PAGE
 # ---------------------------------------------------------
 def build_misc_page():
     content = ctk.CTkFrame(right_panel, fg_color="black")
     content.pack(pady=30, padx=20, anchor="nw", fill="both")
 
-    # ---------------- BANANAS -----------------
+    # ---- Bananas UI ----
     row_banana = ctk.CTkFrame(content, fg_color="black")
     row_banana.pack(pady=10, anchor="w")
-
-    entry_banana = ctk.CTkEntry(row_banana, width=200, placeholder_text="Banana amount",
-                                font=ctk.CTkFont(size=18))
+    entry_banana = ctk.CTkEntry(row_banana, width=200, placeholder_text="Banana amount", font=ctk.CTkFont(size=18))
     entry_banana.pack(side="left", padx=10)
-
-    ctk.CTkButton(row_banana, text="Set", width=80,
-                  font=ctk.CTkFont(size=18),
-                  command=lambda: set_bananas_dynamic(int(entry_banana.get()))
-                  ).pack(side="left", padx=10)
-
-    ctk.CTkLabel(row_banana, text="Bananas 🍌",
-                 font=ctk.CTkFont(size=20)).pack(side="left", padx=10)
-
-    # ---------------- BLUNDERBOMBS -----------------
-    row_blunderbombs = ctk.CTkFrame(content, fg_color="black")
-    row_blunderbombs.pack(pady=10, anchor="w")
-
-    entry_blunderbombs = ctk.CTkEntry(
-        row_blunderbombs,
-        width=200,
-        placeholder_text="Blunderbombs amount",
-        font=ctk.CTkFont(size=18)
-    )
-    entry_blunderbombs.pack(side="left", padx=10)
-
     ctk.CTkButton(
-        row_blunderbombs,
+        row_banana,
         text="Set",
-        width=80,
-        font=ctk.CTkFont(size=18),
-        command=lambda: set_blunderbombs_dynamic(int(entry_blunderbombs.get()))
+        command=lambda: set_bananas_dynamic(int(entry_banana.get())),
+        font=ctk.CTkFont(size=18)
     ).pack(side="left", padx=10)
+    ctk.CTkLabel(row_banana, text="Bananas 🍌", font=ctk.CTkFont(size=20)).pack(side="left")
 
-    ctk.CTkLabel(
-        row_blunderbombs,
-        text="Blunderbombs 💣",
-        font=ctk.CTkFont(size=20)
+    # ---- Blunderbombs UI ----
+    row_bb = ctk.CTkFrame(content, fg_color="black")
+    row_bb.pack(pady=10, anchor="w")
+    entry_bb = ctk.CTkEntry(row_bb, width=200, placeholder_text="Blunderbombs amount", font=ctk.CTkFont(size=18))
+    entry_bb.pack(side="left", padx=10)
+    ctk.CTkButton(
+        row_bb,
+        text="Set",
+        command=lambda: set_blunderbombs_dynamic(int(entry_bb.get())),
+        font=ctk.CTkFont(size=18)
     ).pack(side="left", padx=10)
+    ctk.CTkLabel(row_bb, text="Blunderbombs 💣", font=ctk.CTkFont(size=20)).pack(side="left")
 
-    # ---------------- AMMO BLOCKS -----------------
-    def add_ammo(weapon: str, entry_widget: ctk.CTkEntry):
-        try:
-            value = int(entry_widget.get())
-            set_ammo_dynamic(weapon, value)
-        except ValueError:
-            print(f"{weapon}: invalid number ❌")
-
-    # Blunderbuss
-    row_blunder = ctk.CTkFrame(content, fg_color="black")
-    row_blunder.pack(pady=10, anchor="w")
-
-    entry_blunder = ctk.CTkEntry(row_blunder, width=200, placeholder_text="Blunderbuss Ammo",
-                                 font=ctk.CTkFont(size=18))
-    entry_blunder.pack(side="left", padx=10)
-
-    ctk.CTkButton(row_blunder, text="Set", width=80,
-                  font=ctk.CTkFont(size=18),
-                  command=lambda: add_ammo("Blunderbuss", entry_blunder)).pack(side="left", padx=10)
-
-    ctk.CTkLabel(row_blunder, text="Blunderbuss Ammo 🧨",
-                 font=ctk.CTkFont(size=20)).pack(side="left", padx=10)
-
-    # Sniper
-    row_sniper = ctk.CTkFrame(content, fg_color="black")
-    row_sniper.pack(pady=10, anchor="w")
-
-    entry_sniper = ctk.CTkEntry(row_sniper, width=200, placeholder_text="Sniper Ammo",
-                                font=ctk.CTkFont(size=18))
-    entry_sniper.pack(side="left", padx=10)
-
-    ctk.CTkButton(row_sniper, text="Set", width=80,
-                  font=ctk.CTkFont(size=18),
-                  command=lambda: add_ammo("Sniper", entry_sniper)).pack(side="left", padx=10)
-
-    ctk.CTkLabel(row_sniper, text="Sniper Ammo 🔫",
-                 font=ctk.CTkFont(size=20)).pack(side="left", padx=10)
-
-    # Pistol
-    row_pistol = ctk.CTkFrame(content, fg_color="black")
-    row_pistol.pack(pady=10, anchor="w")
-
-    entry_pistol = ctk.CTkEntry(row_pistol, width=200, placeholder_text="Pistol Ammo",
-                                font=ctk.CTkFont(size=18))
-    entry_pistol.pack(side="left", padx=10)
-
-    ctk.CTkButton(row_pistol, text="Set", width=80,
-                  font=ctk.CTkFont(size=18),
-                  command=lambda: add_ammo("Pistol", entry_pistol)).pack(side="left", padx=10)
-
-    ctk.CTkLabel(row_pistol, text="Pistol Ammo 🔫",
-                 font=ctk.CTkFont(size=20)).pack(side="left", padx=10)
-
-     # ---------------- GODMODE -----------------
+    # ---- Godmode ----
     def toggle_godmode():
         global godmode_enabled
         godmode_enabled = bool(godmode_checkbox.get())
@@ -362,6 +304,20 @@ def build_misc_page():
         command=toggle_godmode
     )
     godmode_checkbox.pack(anchor="w", pady=20, padx=20)
+
+    # ---- >>> ADD: Infinity Ammo Checkbox ----
+    def toggle_infinity_ammo():
+        global infinity_ammo_enabled
+        infinity_ammo_enabled = bool(inf_checkbox.get())
+        print("Infinity Ammo ON ♾️" if infinity_ammo_enabled else "Infinity Ammo OFF ❌")
+
+    inf_checkbox = ctk.CTkCheckBox(
+        content,
+        text="Infinity Ammo ♾️",
+        font=ctk.CTkFont(size=20),
+        command=toggle_infinity_ammo
+    )
+    inf_checkbox.pack(anchor="w", pady=10, padx=20)
 
 # ---------------------------------------------------------
 root.mainloop()
