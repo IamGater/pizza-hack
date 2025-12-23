@@ -159,7 +159,7 @@ def godmode_loop():
                 pm.write_int(health_final_addr, 1079574528)
             except:
                 pass
-        time.sleep(0.03)
+        time.sleep(0.01)
 
 threading.Thread(target=godmode_loop, daemon=True).start()
 
@@ -167,6 +167,31 @@ threading.Thread(target=godmode_loop, daemon=True).start()
 # >>> ADD: INFINITY AMMO
 # ---------------------------------------------------------
 infinity_ammo_enabled = False
+
+# ---------------------------------------------------------
+# MACHINEGUN
+# ---------------------------------------------------------
+machine_gun_enabled = False
+
+MACHINEGUN_POINTER = {
+    "base": module_base + 0x05A515E0,
+    "offsets": [0x288, 0x78, 0xA0, 0x50, 0x8B8, 0x20, 0xC08]
+}
+
+def machine_gun_loop():
+    global machine_gun_enabled
+    while True:
+        if machine_gun_enabled:
+            try:
+                addr = safe_resolve(MACHINEGUN_POINTER["base"], MACHINEGUN_POINTER["offsets"])
+                if addr:
+                    pm.write_int(addr, 1)
+            except:
+                pass
+        # very fast writes to simulate machine-gun
+        time.sleep(0.01)
+
+threading.Thread(target=machine_gun_loop, daemon=True).start()
 
 def infinity_ammo_loop():
     global infinity_ammo_enabled
@@ -182,7 +207,7 @@ def infinity_ammo_loop():
                         pm.write_int(addr, 5)
                 except:
                     pass
-        time.sleep(0.1)
+        time.sleep(0.01)
 
 threading.Thread(target=infinity_ammo_loop, daemon=True).start()
 
@@ -252,7 +277,19 @@ def build_weapon_page():
     content = ctk.CTkFrame(right_panel, fg_color="black")
     content.pack(pady=30, padx=20, anchor="nw")
     ctk.CTkCheckBox(content, text="Aimbot 🎯", font=ctk.CTkFont(size=18)).pack(anchor="w", pady=10)
-    ctk.CTkCheckBox(content, text="Machinegun 🔫", font=ctk.CTkFont(size=18)).pack(anchor="w", pady=10)
+
+    def toggle_machinegun():
+        global machine_gun_enabled
+        machine_gun_enabled = bool(machine_checkbox.get())
+        print("Machinegun ON 🔫" if machine_gun_enabled else "Machinegun OFF ❌")
+
+    machine_checkbox = ctk.CTkCheckBox(
+        content,
+        text="Machinegun 🔫",
+        font=ctk.CTkFont(size=18),
+        command=toggle_machinegun
+    )
+    machine_checkbox.pack(anchor="w", pady=10)
 
 # ---------------------------------------------------------
 # MISC PAGE
