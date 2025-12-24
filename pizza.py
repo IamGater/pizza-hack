@@ -3,10 +3,11 @@ import sys
 import tkinter as tk
 import customtkinter as ctk
 import pymem
-from tkinter import ttk
+from tkinter import ttk, colorchooser
 from typing import Iterable
 import threading
 import time
+import math
 
 sys.stdout.reconfigure(encoding='utf-8')
 # ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
@@ -182,10 +183,10 @@ MACHINEGUN_POINTERS = {
         "base": module_base + 0x05A4D200,
         "offsets": [0xB0, 0x0, 0x30, 0x800, 0x20, 0xA0, 0x96C]
     },
-    "Pistol": {
-        "base": module_base + 0x05A4D180,
-        "offsets": [0xC8, 0x810, 0x90, 0x58, 0x8B8, 0x20, 0x96C]
-    }
+    # "Pistol": {
+    #     "base": module_base + 0x05A4D180,
+    #     "offsets": [0xC8, 0x810, 0x90, 0x58, 0x8B8, 0x20, 0x96C]
+    # }
 }
 
 machine_pistol_enabled = False
@@ -234,6 +235,114 @@ def infinity_ammo_loop():
 threading.Thread(target=infinity_ammo_loop, daemon=True).start()
 
 # ---------------------------------------------------------
+# AIMBOT
+# ---------------------------------------------------------
+aimbot_enabled = False
+aimbot_fov = 45.0  # degrees
+aimbot_color = "#00FF88"  # добавлен цвет аимбота
+
+AIMBOT_POINTERS = {
+	"LocalPlayer": {
+		"base": module_base + 0x05A00000,            # <-- placeholder
+		"view_pitch_offset": 0x4,                  # <-- placeholder
+		"view_yaw_offset": 0x8,                    # <-- placeholder
+		"pos_offsets": [0x30, 0x34, 0x38],         # <-- placeholder x,y,z
+	},
+	"EntityList": {
+		"base": module_base + 0x05B00000,          # <-- placeholder
+		"entity_size": 0x10,                       # <-- placeholder stride
+		"pos_offsets": [0x30, 0x34, 0x38],         # <-- placeholder x,y,z
+		"health_offset": 0xF8                       # <-- placeholder
+	},
+	"max_entities": 32
+}
+
+def calc_angles(local_pos, target_pos):
+	(dx, dy, dz) = (target_pos[0] - local_pos[0], target_pos[1] - local_pos[1], target_pos[2] - local_pos[2])
+	hyp = math.sqrt(dx * dx + dy * dy)
+	if hyp == 0:
+		return 0.0, 0.0
+	pitch = -math.degrees(math.atan2(dz, hyp))
+	yaw = math.degrees(math.atan2(dy, dx))
+	# normalize yaw
+	if yaw < -180: yaw += 360
+	if yaw > 180: yaw -= 360
+	return pitch, yaw
+
+def read_vec3(base, offsets):
+	try:
+		x = pm.read_float(base + offsets[0])
+		y = pm.read_float(base + offsets[1])
+		z = pm.read_float(base + offsets[2])
+		return (x, y, z)
+	except Exception:
+		return None
+
+def is_in_fov(current_pitch, current_yaw, target_pitch, target_yaw, fov):
+	# simple angle distance check
+	dp = target_pitch - current_pitch
+	dy = target_yaw - current_yaw
+	# normalize
+	while dy < -180: dy += 360
+	while dy > 180: dy -= 360
+	dist = math.sqrt(dp*dp + dy*dy)
+	return dist <= fov
+
+def aimbot_loop():
+	global aimbot_enabled
+	while True:
+		if aimbot_enabled:
+			try:
+				# resolve local view pointer
+				lp_base = safe_resolve(AIMBOT_POINTERS["LocalPlayer"]["base"], [0x0])  # adapt as needed
+				el_base = AIMBOT_POINTERS["EntityList"]["base"]
+
+				# try read current view angles
+				view_pitch_addr = lp_base + AIMBOT_POINTERS["LocalPlayer"]["view_pitch_offset"] if lp_base else None
+				view_yaw_addr = lp_base + AIMBOT_POINTERS["LocalPlayer"]["view_yaw_offset"] if lp_base else None
+				current_pitch = pm.read_float(view_pitch_addr) if view_pitch_addr else 0.0
+				current_yaw = pm.read_float(view_yaw_addr) if view_yaw_addr else 0.0
+
+				# read local position
+				local_pos = read_vec3(lp_base, AIMBOT_POINTERS["LocalPlayer"]["pos_offsets"]) if lp_base else None
+				if not local_pos:
+					time.sleep(0.05)
+					continue
+
+				best_dist = 1e9
+				best_angles = None
+
+				for i in range(AIMBOT_POINTERS["max_entities"]):
+					ent_base = el_base + i * AIMBOT_POINTERS["EntityList"]["entity_size"]
+					try:
+						health = pm.read_int(ent_base + AIMBOT_POINTERS["EntityList"]["health_offset"])
+						if health <= 0:
+							continue
+					except Exception:
+						continue
+					target_pos = read_vec3(ent_base, AIMBOT_POINTERS["EntityList"]["pos_offsets"])
+					if not target_pos:
+						continue
+
+					pitch, yaw = calc_angles(local_pos, target_pos)
+					if is_in_fov(current_pitch, current_yaw, pitch, yaw, aimbot_fov):
+						dang = math.hypot(pitch - current_pitch, yaw - current_yaw)
+						if dang < best_dist:
+							best_dist = dang
+							best_angles = (pitch, yaw)
+				if best_angles and view_pitch_addr and view_yaw_addr:
+					try:
+						pm.write_float(view_pitch_addr, float(best_angles[0]))
+						pm.write_float(view_yaw_addr, float(best_angles[1]))
+					except Exception:
+						pass
+			except Exception:
+				pass
+		time.sleep(0.01)
+
+threading.Thread(target=aimbot_loop, daemon=True).start()
+
+# ---------------------------------------------------------
 # UI HEADER
 # ---------------------------------------------------------
 header = ctk.CTkLabel(
@@ -256,6 +365,85 @@ left_menu.pack(side="left", fill="y")
 
 right_panel = ctk.CTkFrame(main_area, fg_color="black")
 right_panel.pack(side="right", fill="both", expand=True)
+
+# добавлено: полноэкранный оверлей (создаётся один раз) и функция отрисовки (без постоянного цикла)
+aimbot_enabled = False
+aimbot_fov = 45.0  # degrees
+
+_overlay = None
+_overlay_canvas = None
+
+def _create_overlay():
+    global _overlay, _overlay_canvas
+    try:
+        _overlay = tk.Toplevel(root)
+        _overlay.overrideredirect(True)
+        _overlay.attributes("-topmost", True)
+        # используем Win32 для точного размера экрана
+        sw = ctypes.windll.user32.GetSystemMetrics(0)
+        sh = ctypes.windll.user32.GetSystemMetrics(1)
+        _overlay.geometry(f"{sw}x{sh}+0+0")
+        _overlay.config(bg="black")
+        try:
+            _overlay.wm_attributes("-transparentcolor", "black")
+        except Exception:
+            pass
+        _overlay_canvas = tk.Canvas(_overlay, width=sw, height=sh, bg="black", highlightthickness=0)
+        _overlay_canvas.pack()
+        _overlay.update_idletasks()
+        try:
+            GWL_EXSTYLE = -20
+            WS_EX_LAYERED = 0x80000
+            WS_EX_TRANSPARENT = 0x20
+            hwnd = _overlay.winfo_id()
+            cur = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, cur | WS_EX_LAYERED | WS_EX_TRANSPARENT)
+            # установить color-key (чёрный станет прозрачным)
+            LWA_COLORKEY = 0x1
+            colorkey = 0x000000
+            ctypes.windll.user32.SetLayeredWindowAttributes(hwnd, colorkey, 0, LWA_COLORKEY)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+def _draw_overlay_once():
+    global _overlay_canvas
+    if not _overlay_canvas:
+        return
+    try:
+        # если аимбот выключен — просто очищаем оверлей и выходим
+        if not aimbot_enabled:
+            try:
+                _overlay_canvas.delete("all")
+            except Exception:
+                pass
+            return
+
+        _overlay_canvas.delete("all")
+        sw = _overlay_canvas.winfo_width()
+        sh = _overlay_canvas.winfo_height()
+        if sw <= 0 or sh <= 0:
+            return
+        cx = sw // 2
+        cy = sh // 2
+        max_r = min(cx, cy) - 20
+        radius = int((aimbot_fov / 180.0) * max_r)
+        # используем текущий выбранный цвет aimbot_color
+        color = aimbot_color if aimbot_enabled else "#666666"
+        _overlay_canvas.create_oval(cx - radius, cy - radius, cx + radius, cy + radius, outline=color, width=2)
+        ch = 12
+        _overlay_canvas.create_line(cx - ch, cy, cx + ch, cy, fill=color)
+        _overlay_canvas.create_line(cx, cy - ch, cx, cy + ch, fill=color)
+        _overlay_canvas.create_oval(cx-4, cy-4, cx+4, cy+4, fill=color, outline=color)
+    except Exception:
+        pass
+
+# инициализация оверлея (один раз)
+try:
+    _create_overlay()
+except Exception:
+    pass
 
 # ---------------------------------------------------------
 # PAGE SYSTEM
@@ -298,8 +486,103 @@ def build_player_page():
 def build_weapon_page():
     content = ctk.CTkFrame(right_panel, fg_color="black")
     content.pack(pady=30, padx=20, anchor="nw")
-    ctk.CTkCheckBox(content, text="Aimbot 🎯", font=ctk.CTkFont(size=18)).pack(anchor="w", pady=10)
 
+    # Aimbot checkbox + FOV visualizer
+    def toggle_aimbot():
+        global aimbot_enabled
+        aimbot_enabled = bool(aimbot_checkbox.get())
+        draw_fov()
+        # обновляем только оверлей при взаимодействии
+        try:
+            _draw_overlay_once()
+        except Exception:
+            pass
+        print("Aimbot ON 🎯" if aimbot_enabled else "Aimbot OFF ❌")
+
+    aimbot_checkbox = ctk.CTkCheckBox(content, text="Aimbot 🎯", font=ctk.CTkFont(size=18), command=toggle_aimbot)
+    try:
+        if aimbot_enabled:
+            aimbot_checkbox.select()
+        else:
+            aimbot_checkbox.deselect()
+    except Exception:
+        pass
+    aimbot_checkbox.pack(anchor="w", pady=6)
+
+    # FOV display (tk.Canvas inside CTkFrame)
+    fov_frame = ctk.CTkFrame(content, fg_color="black")
+    fov_frame.pack(anchor="w", pady=6)
+    canvas_size = 220
+    canvas = tk.Canvas(fov_frame, width=canvas_size, height=canvas_size, bg="#0b0b0b", highlightthickness=0)
+    canvas.pack(side="left", padx=(10,20))
+
+    fov_label = ctk.CTkLabel(fov_frame, text=f"FOV: {int(aimbot_fov)}°", font=ctk.CTkFont(size=16))
+    fov_label.pack(anchor="n", pady=6)
+
+    # кнопка выбора цвета рядом со слайдером
+    def choose_color():
+        global aimbot_color
+        try:
+            col = colorchooser.askcolor(title="Choose FOV color")[1]
+            if col:
+                aimbot_color = col
+                try:
+                    color_button.configure(fg_color=aimbot_color)
+                except Exception:
+                    pass
+                draw_fov()
+                try:
+                    _draw_overlay_once()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    color_button = ctk.CTkButton(fov_frame, text="", width=30, height=30, fg_color=aimbot_color, command=choose_color)
+    color_button.pack(anchor="n", pady=6)
+
+    def set_fov(val):
+        global aimbot_fov
+        try:
+            aimbot_fov = float(val)
+        except:
+            aimbot_fov = float(int(val))
+        try:
+            fov_label.configure(text=f"FOV: {int(aimbot_fov)}°")
+        except Exception:
+            pass
+        draw_fov()
+        try:
+            _draw_overlay_once()
+        except Exception:
+            pass
+
+    fov_slider = ctk.CTkSlider(fov_frame, from_=5, to=180, number_of_steps=175, command=set_fov)
+    try:
+        fov_slider.set(aimbot_fov)
+    except Exception:
+        pass
+    fov_slider.pack(anchor="n", pady=6, padx=(0,12), fill="x")
+
+    def draw_fov():
+        canvas.delete("all")
+        cx = cy = canvas_size // 2
+        max_radius = min(cx, cy) - 10
+        radius = int((aimbot_fov / 180.0) * max_radius)
+        outline = aimbot_color if aimbot_enabled else "#666666"
+        try:
+            canvas.create_oval(cx - radius, cy - radius, cx + radius, cy + radius, outline=outline, width=2)
+            ch = 10
+            canvas.create_line(cx - ch, cy, cx + ch, cy, fill=outline)
+            canvas.create_line(cx, cy - ch, cx, cy + ch, fill=outline)
+            canvas.create_oval(cx-3, cy-3, cx+3, cy+3, fill=outline, outline=outline)
+            canvas.create_text(10, canvas_size-10, anchor="w", fill="#BBBBBB", text=f"FOV {int(aimbot_fov)}°")
+        except Exception:
+            pass
+
+    draw_fov()
+
+    # Machinegun and sub-checkboxes (existing logic)
     def toggle_machinegun():
         global machine_gun_enabled
         machine_gun_enabled = bool(machine_checkbox.get())
@@ -317,7 +600,6 @@ def build_weapon_page():
         font=ctk.CTkFont(size=18),
         command=toggle_machinegun
     )
-    # restore machine checkbox visual state
     try:
         if machine_gun_enabled:
             machine_checkbox.select()
@@ -352,6 +634,7 @@ def build_weapon_page():
             machine_pistol_enabled = False
 
     init_state = "normal" if machine_gun_enabled else "disabled"
+
     sniper_cb = ctk.CTkCheckBox(sub_frame, text="Sniper", font=ctk.CTkFont(size=16), state=init_state, command=on_sniper_toggle)
     try:
         if machine_sniper_enabled:

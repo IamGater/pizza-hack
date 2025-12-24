@@ -7,43 +7,6 @@ predefined pointer chains.
 
 ------------------------------------------------------------------------
 
-## ✅ Working Features
-
-### **Banana Editor 🍌**
-
--   Allows setting any banana amount.
--   Uses safe pointer-chain resolving.
--   Prints clear errors if pointer breaks.
-
-### **Ammo Editor ⚔️**
-
-Supports: - **Pistol** - **Sniper** - **Blunderbuss**
-
-Each weapon uses its own pointer chain.\
-Values are written directly into memory.
-
-### **User Interface**
-
--   Dark theme using CustomTkinter\
--   Sidebar menu (Player / Weapon / Misc)\
--   Dynamic right-panel page system\
--   Clean and simple layout
-
-------------------------------------------------------------------------
-
-## ⚠ Partially Implemented (UI only, no logic)
-
-### Player Page
-
--   Bone ESP 💀
-
-### Weapon Page
-
--   Silent Aimbot 🎯\
--   Machinegun 🔫
-
-------------------------------------------------------------------------
-
 ## 📦 Requirements
 
     pip install pymem customtkinter
@@ -86,12 +49,3 @@ Stored in:
 -   Player\
 -   Weapon\
 -   Misc (working features)
-
-------------------------------------------------------------------------
-
-## 🔮 Future Improvements
-
--   Auto pointer rescanner\
--   Real ESP / Aimbot\
--   Hotkeys\
--   Config saving
