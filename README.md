@@ -22,30 +22,3 @@ Run after launching the game.
 3.  Wait for connection
 4.  Open Misc page
 5.  Set bananas/ammo
-
-------------------------------------------------------------------------
-
-## 🧠 Code Structure Overview
-
-### Process Connection
-
-Attaches to:
-
-    PirateFS-Win64-Shipping.exe
-
-### Pointer Resolving
-
--   resolve_ptr_chain()\
--   safe_resolve()
-
-### Weapon Data Table
-
-Stored in:
-
-    WEAPON_POINTERS = { ... }
-
-### UI Pages
-
--   Player\
--   Weapon\
--   Misc (working features)

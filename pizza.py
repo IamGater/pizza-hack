@@ -8,9 +8,9 @@ from typing import Iterable
 import threading
 import time
 import math
+from ctypes import wintypes
 
 sys.stdout.reconfigure(encoding='utf-8')
-# ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
 
 # ---------------------------------------------------------
 # CONFIG
@@ -18,9 +18,87 @@ sys.stdout.reconfigure(encoding='utf-8')
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
+# base menu color; header_color and button_color are equal to this
+menu_base_color = "#0077CC"
+
+def darken_color(hexcol: str, amount: float = 0.15) -> str:
+    try:
+        hexcol = hexcol.lstrip('#')
+        r = int(hexcol[0:2], 16)
+        g = int(hexcol[2:4], 16)
+        b = int(hexcol[4:6], 16)
+        r = max(0, int(r * (1 - amount)))
+        g = max(0, int(g * (1 - amount)))
+        b = max(0, int(b * (1 - amount)))
+        return f"#{r:02X}{g:02X}{b:02X}"
+    except Exception:
+        return hexcol
+
+# compute current colors
+header_color = menu_base_color
+button_color = menu_base_color
+button_hover_color = darken_color(button_color, 0.15)
+
+def apply_ui_colors():
+    global button_hover_color
+    try:
+        # recalc hover in case base changed
+        button_hover_color = darken_color(button_color, 0.15)
+    except Exception:
+        pass
+    try:
+        header.configure(fg_color=header_color)
+    except Exception:
+        pass
+    try:
+        # update buttons in left_menu
+        for widget in left_menu.winfo_children():
+            try:
+                widget.configure(fg_color=button_color, hover_color=button_hover_color)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+# added: recursively apply styles to buttons/checkboxes inside container
+def style_widget_recursive(container):
+    try:
+        for w in container.winfo_children():
+            try:
+                if isinstance(w, ctk.CTkButton):
+                    w.configure(fg_color=button_color, hover_color=button_hover_color)
+                elif isinstance(w, ctk.CTkCheckBox):
+                    # CTkCheckBox may not support hover_color — try safely
+                    try:
+                        w.configure(fg_color=button_color, hover_color=button_hover_color)
+                    except Exception:
+                        w.configure(fg_color=button_color)
+            except Exception:
+                pass
+            # recursively process child widgets
+            try:
+                if w.winfo_children():
+                    style_widget_recursive(w)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+# replace root creation with overlay-like small window (centered, frameless, topmost)
 root = ctk.CTk()
 root.title("PMH")
-root.geometry("900x550")
+w, h = 900, 550
+sw = ctypes.windll.user32.GetSystemMetrics(0)
+sh = ctypes.windll.user32.GetSystemMetrics(1)
+x = (sw - w) // 2
+y = (sh - h) // 2
+root.geometry(f"{w}x{h}+{x}+{y}")
+root.overrideredirect(True)            # no titlebar
+root.attributes("-topmost", True)      # keep on top
+try:
+    root.attributes("-alpha", 0.95)    # slight transparency
+except Exception:
+    pass
 
 # ---------------------------------------------------------
 # PYMEM INIT
@@ -183,10 +261,6 @@ MACHINEGUN_POINTERS = {
         "base": module_base + 0x05A4D200,
         "offsets": [0xB0, 0x0, 0x30, 0x800, 0x20, 0xA0, 0x96C]
     },
-    # "Pistol": {
-    #     "base": module_base + 0x05A4D180,
-    #     "offsets": [0xC8, 0x810, 0x90, 0x58, 0x8B8, 0x20, 0x96C]
-    # }
 }
 
 machine_pistol_enabled = False
@@ -239,20 +313,20 @@ threading.Thread(target=infinity_ammo_loop, daemon=True).start()
 # ---------------------------------------------------------
 aimbot_enabled = False
 aimbot_fov = 45.0  # degrees
-aimbot_color = "#00FF88"  # добавлен цвет аимбота
+aimbot_color = "#00FF88"
 
 AIMBOT_POINTERS = {
 	"LocalPlayer": {
-		"base": module_base + 0x05A00000,            # <-- placeholder
-		"view_pitch_offset": 0x4,                  # <-- placeholder
-		"view_yaw_offset": 0x8,                    # <-- placeholder
-		"pos_offsets": [0x30, 0x34, 0x38],         # <-- placeholder x,y,z
+		"base": module_base + 0x05A00000,
+		"view_pitch_offset": 0x4,
+		"view_yaw_offset": 0x8,
+		"pos_offsets": [0x30, 0x34, 0x38],
 	},
 	"EntityList": {
-		"base": module_base + 0x05B00000,          # <-- placeholder
-		"entity_size": 0x10,                       # <-- placeholder stride
-		"pos_offsets": [0x30, 0x34, 0x38],         # <-- placeholder x,y,z
-		"health_offset": 0xF8                       # <-- placeholder
+		"base": module_base + 0x05B00000,
+		"entity_size": 0x10,
+		"pos_offsets": [0x30, 0x34, 0x38],
+		"health_offset": 0xF8
 	},
 	"max_entities": 32
 }
@@ -354,6 +428,30 @@ header = ctk.CTkLabel(
 )
 header.pack(fill="x")
 
+# after header is created, add dragging handlers so overlay-like window can be moved
+# (insert right after header.pack(fill="x"))
+def _start_move(event):
+    try:
+        root._drag_x = event.x_root - root.winfo_x()
+        root._drag_y = event.y_root - root.winfo_y()
+    except Exception:
+        pass
+
+def _on_move(event):
+    try:
+        nx = event.x_root - root._drag_x
+        ny = event.y_root - root._drag_y
+        root.geometry(f"+{nx}+{ny}")
+    except Exception:
+        pass
+
+# bind dragging
+try:
+    header.bind("<ButtonPress-1>", _start_move)
+    header.bind("<B1-Motion>", _on_move)
+except Exception:
+    pass
+
 # ---------------------------------------------------------
 # MAIN AREA
 # ---------------------------------------------------------
@@ -366,12 +464,10 @@ left_menu.pack(side="left", fill="y")
 right_panel = ctk.CTkFrame(main_area, fg_color="black")
 right_panel.pack(side="right", fill="both", expand=True)
 
-# добавлено: полноэкранный оверлей (создаётся один раз) и функция отрисовки (без постоянного цикла)
-aimbot_enabled = False
-aimbot_fov = 45.0  # degrees
-
+# initialize overlay (canvas on a transparent fullscreen Toplevel)
 _overlay = None
 _overlay_canvas = None
+_menu_visible = True
 
 def _create_overlay():
     global _overlay, _overlay_canvas
@@ -379,7 +475,6 @@ def _create_overlay():
         _overlay = tk.Toplevel(root)
         _overlay.overrideredirect(True)
         _overlay.attributes("-topmost", True)
-        # используем Win32 для точного размера экрана
         sw = ctypes.windll.user32.GetSystemMetrics(0)
         sh = ctypes.windll.user32.GetSystemMetrics(1)
         _overlay.geometry(f"{sw}x{sh}+0+0")
@@ -398,7 +493,6 @@ def _create_overlay():
             hwnd = _overlay.winfo_id()
             cur = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
             ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, cur | WS_EX_LAYERED | WS_EX_TRANSPARENT)
-            # установить color-key (чёрный станет прозрачным)
             LWA_COLORKEY = 0x1
             colorkey = 0x000000
             ctypes.windll.user32.SetLayeredWindowAttributes(hwnd, colorkey, 0, LWA_COLORKEY)
@@ -407,41 +501,148 @@ def _create_overlay():
     except Exception:
         pass
 
-def _draw_overlay_once():
-    global _overlay_canvas
-    if not _overlay_canvas:
-        return
-    try:
-        # если аимбот выключен — просто очищаем оверлей и выходим
-        if not aimbot_enabled:
-            try:
-                _overlay_canvas.delete("all")
-            except Exception:
-                pass
-            return
+# create the overlay so drawing functions have a canvas
+try:
+    _create_overlay()
+except Exception:
+    pass
 
-        _overlay_canvas.delete("all")
-        sw = _overlay_canvas.winfo_width()
-        sh = _overlay_canvas.winfo_height()
-        if sw <= 0 or sh <= 0:
-            return
-        cx = sw // 2
-        cy = sh // 2
-        max_r = min(cx, cy) - 20
-        radius = int((aimbot_fov / 180.0) * max_r)
-        # используем текущий выбранный цвет aimbot_color
-        color = aimbot_color if aimbot_enabled else "#666666"
-        _overlay_canvas.create_oval(cx - radius, cy - radius, cx + radius, cy + radius, outline=color, width=2)
-        ch = 12
-        _overlay_canvas.create_line(cx - ch, cy, cx + ch, cy, fill=color)
-        _overlay_canvas.create_line(cx, cy - ch, cx, cy + ch, fill=color)
-        _overlay_canvas.create_oval(cx-4, cy-4, cx+4, cy+4, fill=color, outline=color)
+# HOTKEY (global hook for F12)
+_hotkey_id = 1
+_hotkey_vk = 0x7B  # VK_F12
+_hotkey_mod = 0
+_hotkey_running = False
+_hotkey_thread = None
+_overlay_visible = True
+_selected_hotkey = 0x7B  # Default F12
+_selected_hotkey_name = "F12"  # Store the key name
+
+def _toggle_menu():
+    global _menu_visible
+    try:
+        if _menu_visible:
+            # fade out animation (faster)
+            _animate_alpha(0.95, 0.0, duration=100, is_closing=True)
+            _menu_visible = False
+        else:
+            # fade in animation (faster)
+            _animate_alpha(0.0, 0.95, duration=100, is_closing=False)
+            _menu_visible = True
     except Exception:
         pass
 
-# инициализация оверлея (один раз)
+def _animate_alpha(start_alpha, end_alpha, duration=100, is_closing=False):
+    """Animate window alpha from start to end over duration milliseconds"""
+    steps = 10
+    step_duration = duration // steps
+    current_step = [0]
+    
+    def animate_step():
+        if current_step[0] <= steps:
+            progress = current_step[0] / steps
+            current_alpha = start_alpha + (end_alpha - start_alpha) * progress
+            try:
+                root.attributes("-alpha", current_alpha)
+            except Exception:
+                pass
+            current_step[0] += 1
+            root.after(step_duration, animate_step)
+        else:
+            # Ensure final value is set
+            try:
+                root.attributes("-alpha", end_alpha)
+            except Exception:
+                pass
+    
+    animate_step()
+
+# Global hook constants
+WH_KEYBOARD_LL = 13
+WM_KEYDOWN = 0x0100
+
+# Define keyboard hook function
+def _keyboard_hook_proc(nCode, wParam, lParam):
+    if nCode >= 0 and wParam == WM_KEYDOWN:
+        try:
+            vkCode = ctypes.c_int(lParam[0]).value
+            if vkCode == _selected_hotkey:  # Use _selected_hotkey instead of 0x7B
+                root.after(0, _toggle_menu)
+        except Exception:
+            pass
+    return ctypes.windll.user32.CallNextHookEx(0, nCode, wParam, lParam)
+
+_hook_proc_type = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int)
+_hook_proc = _hook_proc_type(_keyboard_hook_proc)
+_hook_handle = None
+
+def register_global_hook():
+    global _hook_handle
+    try:
+        hmod = ctypes.windll.kernel32.GetModuleHandleW(None)
+        if not hmod:
+            hmod = 0
+        _hook_handle = ctypes.windll.user32.SetWindowsHookExW(
+            WH_KEYBOARD_LL,
+            _hook_proc,
+            hmod,
+            0
+        )
+        if _hook_handle:
+            print("Global keyboard hook registered ✅")
+            return True
+        else:
+            print("Failed to register global keyboard hook, trying fallback... ⚠️")
+            # Fallback: use thread-based hotkey instead
+            threading.Thread(target=_hotkey_thread_listener, daemon=True).start()
+            print("Fallback hotkey listener started ✅")
+            return True
+    except Exception as e:
+        print(f"Hook error: {e} ⚠️, using fallback...")
+        threading.Thread(target=_hotkey_thread_listener, daemon=True).start()
+        print("Fallback hotkey listener started ✅")
+        return True
+
+def _hotkey_thread_listener():
+    """Fallback: listen for selected hotkey in separate thread using GetAsyncKeyState"""
+    while True:
+        try:
+            # Check if selected hotkey is pressed
+            state = ctypes.windll.user32.GetAsyncKeyState(_selected_hotkey)
+            if state & 0x8001:  # Key is pressed
+                time.sleep(0.2)  # Debounce
+                _toggle_menu()
+                time.sleep(0.3)  # Prevent multiple triggers
+        except Exception:
+            pass
+        time.sleep(0.01)
+
+def unregister_global_hook():
+    global _hook_handle
+    try:
+        if _hook_handle:
+            ctypes.windll.user32.UnhookWindowsHookEx(_hook_handle)
+            _hook_handle = None
+    except Exception:
+        pass
+
+def on_exit():
+    try:
+        unregister_global_hook()
+    except Exception:
+        pass
+    try:
+        root.destroy()
+    except Exception:
+        pass
+
+# register global hook on startup
 try:
-    _create_overlay()
+    register_global_hook()
+except Exception:
+    pass
+
+try:
+    root.protocol("WM_DELETE_WINDOW", on_exit)
 except Exception:
     pass
 
@@ -457,16 +658,33 @@ def show_page(page):
         build_weapon_page()
     elif page == "Player":
         build_player_page()
+    elif page == "Settings":
+        build_settings_page()
+    # apply colors to new page widgets
+    try:
+        apply_ui_colors()
+        style_widget_recursive(right_panel)
+    except Exception:
+        pass
 
-for b in ["Player", "Weapon", "Misc"]:
+# add tabs including Settings
+for b in ["Player", "Weapon", "Misc", "Settings"]:
     ctk.CTkButton(
         left_menu,
         text=b,
         height=45,
         corner_radius=8,
         font=ctk.CTkFont(size=22, weight="bold"),
+        fg_color=button_color,
+        hover_color=button_hover_color,
         command=lambda p=b: show_page(p)
     ).pack(fill="x", padx=15, pady=10)
+
+# apply current UI colors
+try:
+    apply_ui_colors()
+except Exception:
+    pass
 
 # ---------------------------------------------------------
 # PLAYER PAGE
@@ -741,4 +959,103 @@ def build_misc_page():
     inf_checkbox.pack(anchor="w", pady=10, padx=20)
 
 # ---------------------------------------------------------
+# SETTINGS PAGE
+# ---------------------------------------------------------
+def build_settings_page():
+    content = ctk.CTkFrame(right_panel, fg_color="black")
+    content.pack(pady=30, padx=20, anchor="nw", fill="both")
+
+    row = ctk.CTkFrame(content, fg_color="black")
+    row.pack(anchor="w", pady=10)
+
+    ctk.CTkLabel(row, text="Menu color:", font=ctk.CTkFont(size=18)).pack(side="left", padx=(0,10))
+
+    def choose_menu_color():
+        global menu_base_color, header_color, button_color, button_hover_color
+        try:
+            col = colorchooser.askcolor(title="Choose menu color")[1]
+            if col:
+                menu_base_color = col
+                header_color = menu_base_color
+                button_color = menu_base_color
+                button_hover_color = darken_color(button_color, 0.15)
+                try:
+                    color_preview.configure(fg_color=menu_base_color)
+                except Exception:
+                    pass
+                apply_ui_colors()
+        except Exception:
+            pass
+
+    color_preview = ctk.CTkButton(row, text="", width=40, height=30, fg_color=menu_base_color, command=choose_menu_color)
+    color_preview.pack(side="left", padx=(0,10))
+
+    ctk.CTkButton(row, text="Choose...", command=choose_menu_color, font=ctk.CTkFont(size=16)).pack(side="left")
+
+    # ---- Hotkey Selection ----
+    hotkey_row = ctk.CTkFrame(content, fg_color="black")
+    hotkey_row.pack(anchor="w", pady=20)
+
+    ctk.CTkLabel(hotkey_row, text="Toggle hotkey:", font=ctk.CTkFont(size=18)).pack(side="left", padx=(0,10))
+
+    hotkey_label = ctk.CTkLabel(hotkey_row, text=_selected_hotkey_name, font=ctk.CTkFont(size=16, weight="bold"), text_color="#00FF88")
+    hotkey_label.pack(side="left", padx=(0,10))
+
+    def set_hotkey():
+        """Listen for next keypress and set it as hotkey"""
+        global _selected_hotkey, _selected_hotkey_name
+        hotkey_label.configure(text="Press any key...", text_color="#FFFF00")
+        root.update()
+        
+        def wait_for_key(event):
+            global _selected_hotkey, _selected_hotkey_name
+            try:
+                vk_code = event.keycode
+                key_name = event.keysym.upper()
+                _selected_hotkey = vk_code
+                _selected_hotkey_name = key_name
+                hotkey_label.configure(text=key_name, text_color="#00FF88")
+                print(f"Hotkey changed to {key_name} (VK: {vk_code}) ✅")
+                root.unbind("<KeyPress>")
+            except Exception as e:
+                print(f"Error setting hotkey: {e}")
+                hotkey_label.configure(text=_selected_hotkey_name, text_color="#00FF88")
+        
+        root.bind("<KeyPress>", wait_for_key)
+
+    ctk.CTkButton(hotkey_row, text="Set Hotkey", command=set_hotkey, font=ctk.CTkFont(size=16)).pack(side="left")
+
+
+# ---------------------------------------------------------
+def _draw_overlay_once():
+    global _overlay_canvas
+    if not _overlay_canvas:
+        return
+    try:
+        _overlay_canvas.delete("all")
+        # Only draw if aimbot is enabled
+        if not aimbot_enabled:
+            return
+        sw = _overlay_canvas.winfo_width()
+        sh = _overlay_canvas.winfo_height()
+        if sw <= 0 or sh <= 0:
+            return
+        cx = sw // 2
+        cy = sh // 2
+        max_r = min(cx, cy) - 20
+        radius = int((aimbot_fov / 180.0) * max_r)
+        # draw FOV circle only when aimbot is enabled
+        color = aimbot_color if aimbot_enabled else "#666666"
+        outline_width = 2 if aimbot_enabled else 1
+        try:
+            _overlay_canvas.create_oval(cx - radius, cy - radius, cx + radius, cy + radius, outline=color, width=outline_width)
+            ch = 12
+            _overlay_canvas.create_line(cx - ch, cy, cx + ch, cy, fill=color)
+            _overlay_canvas.create_line(cx, cy - ch, cx, cy + ch, fill=color)
+            _overlay_canvas.create_oval(cx-4, cy-4, cx+4, cy+4, fill=color, outline=color)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
 root.mainloop()
