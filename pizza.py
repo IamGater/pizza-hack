@@ -37,7 +37,7 @@ except Exception as e:
     raise SystemExit
 
 # ---------------------------------------------------------
-# POINTER CHAIN RESOLVER (SAFE)
+# POINTER CHAIN RESOLVER
 # ---------------------------------------------------------
 def resolve_ptr_chain(
     pm: pymem.Pymem,
@@ -164,7 +164,7 @@ def godmode_loop():
 threading.Thread(target=godmode_loop, daemon=True).start()
 
 # ---------------------------------------------------------
-# >>> ADD: INFINITY AMMO
+# INFINITY AMMO
 # ---------------------------------------------------------
 infinity_ammo_enabled = False
 
@@ -173,22 +173,44 @@ infinity_ammo_enabled = False
 # ---------------------------------------------------------
 machine_gun_enabled = False
 
-MACHINEGUN_POINTER = {
-    "base": module_base + 0x05A515E0,
-    "offsets": [0x288, 0x78, 0xA0, 0x50, 0x8B8, 0x20, 0xC08]
+MACHINEGUN_POINTERS = {
+    "Sniper": {
+        "base": module_base + 0x05A515E0,
+        "offsets": [0x288, 0x78, 0xA0, 0x50, 0x8B8, 0x20, 0xC08]
+    },
+    "Blunderbuss": {
+        "base": module_base + 0x05A4D200,
+        "offsets": [0xB0, 0x0, 0x30, 0x800, 0x20, 0xA0, 0x96C]
+    },
+    "Pistol": {
+        "base": module_base + 0x05A4D180,
+        "offsets": [0xC8, 0x810, 0x90, 0x58, 0x8B8, 0x20, 0x96C]
+    }
 }
 
+machine_pistol_enabled = False
+machine_sniper_enabled = False
+machine_blunderbuss_enabled = False
+
 def machine_gun_loop():
-    global machine_gun_enabled
+    global machine_gun_enabled, machine_pistol_enabled, machine_sniper_enabled, machine_blunderbuss_enabled
     while True:
         if machine_gun_enabled:
             try:
-                addr = safe_resolve(MACHINEGUN_POINTER["base"], MACHINEGUN_POINTER["offsets"])
-                if addr:
-                    pm.write_int(addr, 1)
+                if machine_sniper_enabled:
+                    addr = safe_resolve(MACHINEGUN_POINTERS["Sniper"]["base"], MACHINEGUN_POINTERS["Sniper"]["offsets"])
+                    if addr:
+                        pm.write_int(addr, 1)
+                if machine_blunderbuss_enabled:
+                    addr = safe_resolve(MACHINEGUN_POINTERS["Blunderbuss"]["base"], MACHINEGUN_POINTERS["Blunderbuss"]["offsets"])
+                    if addr:
+                        pm.write_int(addr, 1)
+                if machine_pistol_enabled:
+                    addr = safe_resolve(MACHINEGUN_POINTERS["Pistol"]["base"], MACHINEGUN_POINTERS["Pistol"]["offsets"])
+                    if addr:
+                        pm.write_int(addr, 1)
             except:
                 pass
-        # very fast writes to simulate machine-gun
         time.sleep(0.01)
 
 threading.Thread(target=machine_gun_loop, daemon=True).start()
@@ -281,6 +303,12 @@ def build_weapon_page():
     def toggle_machinegun():
         global machine_gun_enabled
         machine_gun_enabled = bool(machine_checkbox.get())
+        state = "normal" if machine_gun_enabled else "disabled"
+        for cb in (sniper_cb, blunderbuss_cb, pistol_cb):
+            try:
+                cb.configure(state=state)
+            except Exception:
+                pass
         print("Machinegun ON 🔫" if machine_gun_enabled else "Machinegun OFF ❌")
 
     machine_checkbox = ctk.CTkCheckBox(
@@ -289,7 +317,70 @@ def build_weapon_page():
         font=ctk.CTkFont(size=18),
         command=toggle_machinegun
     )
+    # restore machine checkbox visual state
+    try:
+        if machine_gun_enabled:
+            machine_checkbox.select()
+        else:
+            machine_checkbox.deselect()
+    except Exception:
+        pass
     machine_checkbox.pack(anchor="w", pady=10)
+
+    sub_frame = ctk.CTkFrame(content, fg_color="black")
+    sub_frame.pack(padx=30, anchor="w")
+
+    def on_sniper_toggle():
+        global machine_sniper_enabled
+        try:
+            machine_sniper_enabled = bool(sniper_cb.get())
+        except Exception:
+            machine_sniper_enabled = False
+
+    def on_blunderbuss_toggle():
+        global machine_blunderbuss_enabled
+        try:
+            machine_blunderbuss_enabled = bool(blunderbuss_cb.get())
+        except Exception:
+            machine_blunderbuss_enabled = False
+
+    def on_pistol_toggle():
+        global machine_pistol_enabled
+        try:
+            machine_pistol_enabled = bool(pistol_cb.get())
+        except Exception:
+            machine_pistol_enabled = False
+
+    init_state = "normal" if machine_gun_enabled else "disabled"
+    sniper_cb = ctk.CTkCheckBox(sub_frame, text="Sniper", font=ctk.CTkFont(size=16), state=init_state, command=on_sniper_toggle)
+    try:
+        if machine_sniper_enabled:
+            sniper_cb.select()
+        else:
+            sniper_cb.deselect()
+    except Exception:
+        pass
+    sniper_cb.pack(anchor="w", pady=2)
+
+    blunderbuss_cb = ctk.CTkCheckBox(sub_frame, text="Blunderbuss", font=ctk.CTkFont(size=16), state=init_state, command=on_blunderbuss_toggle)
+    try:
+        if machine_blunderbuss_enabled:
+            blunderbuss_cb.select()
+        else:
+            blunderbuss_cb.deselect()
+    except Exception:
+        pass
+    blunderbuss_cb.pack(anchor="w", pady=2)
+
+    pistol_cb = ctk.CTkCheckBox(sub_frame, text="Pistol", font=ctk.CTkFont(size=16), state=init_state, command=on_pistol_toggle)
+    try:
+        if machine_pistol_enabled:
+            pistol_cb.select()
+        else:
+            pistol_cb.deselect()
+    except Exception:
+        pass
+    pistol_cb.pack(anchor="w", pady=2)
 
 # ---------------------------------------------------------
 # MISC PAGE
@@ -336,9 +427,16 @@ def build_misc_page():
         font=ctk.CTkFont(size=20),
         command=toggle_godmode
     )
+    try:
+        if godmode_enabled:
+            godmode_checkbox.select()
+        else:
+            godmode_checkbox.deselect()
+    except Exception:
+        pass
     godmode_checkbox.pack(anchor="w", pady=20, padx=20)
 
-    # ---- >>> ADD: Infinity Ammo Checkbox ----
+    # ---- Infinity Ammo ----
     def toggle_infinity_ammo():
         global infinity_ammo_enabled
         infinity_ammo_enabled = bool(inf_checkbox.get())
@@ -350,6 +448,13 @@ def build_misc_page():
         font=ctk.CTkFont(size=20),
         command=toggle_infinity_ammo
     )
+    try:
+        if infinity_ammo_enabled:
+            inf_checkbox.select()
+        else:
+            inf_checkbox.deselect()
+    except Exception:
+        pass
     inf_checkbox.pack(anchor="w", pady=10, padx=20)
 
 # ---------------------------------------------------------
