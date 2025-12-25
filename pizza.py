@@ -3,7 +3,9 @@ import sys
 import tkinter as tk
 import customtkinter as ctk
 import pymem
-from tkinter import ttk, colorchooser
+from tkinter import ttk, colorchooser, filedialog
+import json
+import tkinter.font as tkfont
 from typing import Iterable
 import threading
 import time
@@ -57,6 +59,18 @@ def apply_ui_colors():
                 widget.configure(fg_color=button_color, hover_color=button_hover_color)
             except Exception:
                 pass
+    except Exception:
+        pass
+    try:
+        # рекурсивно применяем стиль ко всем виджетам меню и правой панели
+        try:
+            style_widget_recursive(left_menu)
+        except Exception:
+            pass
+        try:
+            style_widget_recursive(right_panel)
+        except Exception:
+            pass
     except Exception:
         pass
 
@@ -184,8 +198,8 @@ def set_blunderbombs_dynamic(amount: int):
 # ---------------------------------------------------------
 WEAPON_POINTERS = {
     "Pistol": {
-        "base": module_base + 0x056E5B40,
-        "offsets": [0x290, 0x20, 0x6B0, 0x20, 0x7A8, 0x20, 0xA10],
+        "base": module_base + 0x05A38E78,
+        "offsets": [0xE8, 0xA0, 0x840, 0x20, 0x6E0, 0xA0, 0xA10],
     },
     "Sniper": {
         "base": module_base + 0x05A43A28,
@@ -261,6 +275,10 @@ MACHINEGUN_POINTERS = {
         "base": module_base + 0x05A4D200,
         "offsets": [0xB0, 0x0, 0x30, 0x800, 0x20, 0xA0, 0x96C]
     },
+    "Pistol": {
+        "base": module_base + 0x05A38E78,
+        "offsets": [0x158, 0xA0, 0x808, 0xA0, 0x7C0, 0x20, 0x96C]
+    }
 }
 
 machine_pistol_enabled = False
@@ -483,6 +501,11 @@ def _create_overlay():
             _overlay.wm_attributes("-transparentcolor", "black")
         except Exception:
             pass
+        # make overlay semi-transparent (alpha 0.95 like the menu)
+        try:
+            _overlay.attributes("-alpha", 0.95)
+        except Exception:
+            pass
         _overlay_canvas = tk.Canvas(_overlay, width=sw, height=sh, bg="black", highlightthickness=0)
         _overlay_canvas.pack()
         _overlay.update_idletasks()
@@ -522,11 +545,11 @@ def _toggle_menu():
     try:
         if _menu_visible:
             # fade out animation (faster)
-            _animate_alpha(0.95, 0.0, duration=100, is_closing=True)
+            _animate_alpha(0.95, 0.0, duration=25, is_closing=True)
             _menu_visible = False
         else:
             # fade in animation (faster)
-            _animate_alpha(0.0, 0.95, duration=100, is_closing=False)
+            _animate_alpha(0.0, 0.95, duration=25, is_closing=False)
             _menu_visible = True
     except Exception:
         pass
@@ -667,7 +690,14 @@ def show_page(page):
     except Exception:
         pass
 
-# add tabs including Settings
+# добавляем текущую страницу и helper для открытия страницы (обновляет current_page)
+current_page = "Player"
+def open_page(p):
+    global current_page
+    current_page = p
+    show_page(p)
+
+# add tabs including Settings (заменено command на open_page)
 for b in ["Player", "Weapon", "Misc", "Settings"]:
     ctk.CTkButton(
         left_menu,
@@ -677,7 +707,7 @@ for b in ["Player", "Weapon", "Misc", "Settings"]:
         font=ctk.CTkFont(size=22, weight="bold"),
         fg_color=button_color,
         hover_color=button_hover_color,
-        command=lambda p=b: show_page(p)
+        command=lambda p=b: open_page(p)
     ).pack(fill="x", padx=15, pady=10)
 
 # apply current UI colors
@@ -689,14 +719,75 @@ except Exception:
 # ---------------------------------------------------------
 # PLAYER PAGE
 # ---------------------------------------------------------
+# ------------------ ESP: globals and placeholder offsets ------------------
+esp_enabled = False
+
+ESP_PLACEHOLDERS = {
+    "EntityList": {
+        "base": module_base + 0x05B00000,            # base address of entity array (example)
+        "entity_size": 0x10,                         # size/stride of entity structure
+        "pos": {
+            "base": module_base + 0x05B00000,        # base for positions (may match EntityList.base)
+            "offsets": {"x": 0x30, "y": 0x34, "z": 0x38}  # PLACEHOLDERS: replace with real offsets
+        },
+        "health": {
+            "base": module_base + 0x05B00000,        # base for health (may match)
+            "offset": 0xF8                           # PLACEHOLDER: replace with real health offset
+        },
+        "name": {
+            "base": module_base + 0x05B00000,
+            "offset": 0x0
+        }
+    },
+    "max_entities": 32
+}
+
+def world_to_screen_local(local_pos, current_pitch, current_yaw, target_pos, sw, sh):
+    """Simple projection approximation using angle offset (used instead of real matrix)."""
+    try:
+        pitch, yaw = calc_angles(local_pos, target_pos)
+        dp = pitch - (current_pitch or 0.0)
+        dy = yaw - (current_yaw or 0.0)
+        while dy < -180: dy += 360
+        while dy > 180: dy -= 360
+        cx = sw // 2
+        cy = sh // 2
+        max_r = min(cx, cy) - 60
+        # Нормируем по текущему aimbot_fov (безопасно >0)
+        fov = max(1.0, aimbot_fov)
+        x = cx + int((dy / fov) * max_r)
+        y = cy - int((dp / fov) * max_r)
+        return x, y
+    except Exception:
+        return None, None
+
 def build_player_page():
     content = ctk.CTkFrame(right_panel, fg_color="black")
     content.pack(pady=30, padx=20, anchor="nw")
-    ctk.CTkCheckBox(
+    # ESP checkbox toggles esp_enabled and redraws the overlay
+    def toggle_esp():
+        global esp_enabled
+        esp_enabled = bool(esp_checkbox.get())
+        try:
+            _draw_overlay_once()
+        except Exception:
+            pass
+        print("ESP ON 💀" if esp_enabled else "ESP OFF ❌")
+
+    esp_checkbox = ctk.CTkCheckBox(
         content,
         text="ESP 💀",
-        font=ctk.CTkFont(size=18)
-    ).pack(anchor="w", pady=10, padx=10)
+        font=ctk.CTkFont(size=18),
+        command=toggle_esp
+    )
+    try:
+        if esp_enabled:
+            esp_checkbox.select()
+        else:
+            esp_checkbox.deselect()
+    except Exception:
+        pass
+    esp_checkbox.pack(anchor="w", pady=10, padx=10)
 
 # ---------------------------------------------------------
 # WEAPON PAGE
@@ -737,7 +828,7 @@ def build_weapon_page():
     fov_label = ctk.CTkLabel(fov_frame, text=f"FOV: {int(aimbot_fov)}°", font=ctk.CTkFont(size=16))
     fov_label.pack(anchor="n", pady=6)
 
-    # кнопка выбора цвета рядом со слайдером
+    # color picker next to slider (for FOV color)
     def choose_color():
         global aimbot_color
         try:
@@ -810,6 +901,10 @@ def build_weapon_page():
                 cb.configure(state=state)
             except Exception:
                 pass
+        try:
+            _draw_overlay_once()  # обновляем статусный бокс
+        except Exception:
+            pass
         print("Machinegun ON 🔫" if machine_gun_enabled else "Machinegun OFF ❌")
 
     machine_checkbox = ctk.CTkCheckBox(
@@ -836,6 +931,10 @@ def build_weapon_page():
             machine_sniper_enabled = bool(sniper_cb.get())
         except Exception:
             machine_sniper_enabled = False
+        try:
+            _draw_overlay_once()
+        except Exception:
+            pass
 
     def on_blunderbuss_toggle():
         global machine_blunderbuss_enabled
@@ -843,6 +942,10 @@ def build_weapon_page():
             machine_blunderbuss_enabled = bool(blunderbuss_cb.get())
         except Exception:
             machine_blunderbuss_enabled = False
+        try:
+            _draw_overlay_once()
+        except Exception:
+            pass
 
     def on_pistol_toggle():
         global machine_pistol_enabled
@@ -850,6 +953,10 @@ def build_weapon_page():
             machine_pistol_enabled = bool(pistol_cb.get())
         except Exception:
             machine_pistol_enabled = False
+        try:
+            _draw_overlay_once()
+        except Exception:
+            pass
 
     init_state = "normal" if machine_gun_enabled else "disabled"
 
@@ -920,6 +1027,10 @@ def build_misc_page():
     def toggle_godmode():
         global godmode_enabled
         godmode_enabled = bool(godmode_checkbox.get())
+        try:
+            _draw_overlay_once()
+        except Exception:
+            pass
         print("Godmode ON ❤️‍🔥" if godmode_enabled else "Godmode OFF ❌")
 
     godmode_checkbox = ctk.CTkCheckBox(
@@ -941,6 +1052,10 @@ def build_misc_page():
     def toggle_infinity_ammo():
         global infinity_ammo_enabled
         infinity_ammo_enabled = bool(inf_checkbox.get())
+        try:
+            _draw_overlay_once()
+        except Exception:
+            pass
         print("Infinity Ammo ON ♾️" if infinity_ammo_enabled else "Infinity Ammo OFF ❌")
 
     inf_checkbox = ctk.CTkCheckBox(
@@ -971,7 +1086,7 @@ def build_settings_page():
     ctk.CTkLabel(row, text="Menu color:", font=ctk.CTkFont(size=18)).pack(side="left", padx=(0,10))
 
     def choose_menu_color():
-        global menu_base_color, header_color, button_color, button_hover_color
+        global menu_base_color, header_color, button_color, button_hover_color, aimbot_color
         try:
             col = colorchooser.askcolor(title="Choose menu color")[1]
             if col:
@@ -979,11 +1094,31 @@ def build_settings_page():
                 header_color = menu_base_color
                 button_color = menu_base_color
                 button_hover_color = darken_color(button_color, 0.15)
+                # sync aimbot color with menu color
+                aimbot_color = menu_base_color
                 try:
                     color_preview.configure(fg_color=menu_base_color)
                 except Exception:
                     pass
                 apply_ui_colors()
+                # сразу рекурсивно обновляем виджеты в интерфейсе
+                try:
+                    style_widget_recursive(left_menu)
+                except Exception:
+                    pass
+                try:
+                    style_widget_recursive(right_panel)
+                except Exception:
+                    pass
+                # перестроим текущую страницу, чтобы кнопки/отображение цвета обновились
+                try:
+                    show_page(current_page)
+                except Exception:
+                    pass
+                try:
+                    _draw_overlay_once()  # обновляем оверлей при смене цвета
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -1025,16 +1160,157 @@ def build_settings_page():
 
     ctk.CTkButton(hotkey_row, text="Set Hotkey", command=set_hotkey, font=ctk.CTkFont(size=16)).pack(side="left")
 
+    # Save / Load row (верхний)
+    save_load_row = ctk.CTkFrame(content, fg_color="black")
+    save_load_row.pack(anchor="w", pady=10)
+
+    ctk.CTkButton(
+        save_load_row,
+        text="Save Config",
+        font=ctk.CTkFont(size=14),
+        fg_color=button_color,
+        hover_color=button_hover_color,
+        command=save_config_dialog,
+        width=120,
+        height=36
+    ).pack(side="left", padx=(0,6))
+
+    ctk.CTkButton(
+        save_load_row,
+        text="Load Config",
+        font=ctk.CTkFont(size=14),
+        fg_color=button_color,
+        hover_color=button_hover_color,
+        command=load_config_dialog,
+        width=120,
+        height=36
+    ).pack(side="left", padx=(6,0))
+
+    # Exit button в отдельном нижнем ряду
+    exit_row_bottom = ctk.CTkFrame(content, fg_color="black")
+    exit_row_bottom.pack(anchor="w", pady=20)
+
+    ctk.CTkButton(
+        exit_row_bottom,
+        text="Exit",
+        font=ctk.CTkFont(size=16, weight="bold"),
+        fg_color="#D43F3A",
+        hover_color=darken_color("#D43F3A", 0.12),
+        command=on_exit,
+        width=110,
+        height=36
+    ).pack(side="left", padx=(0,6))
+
+# ------------------ Конфиг: save/load/apply ------------------
+def get_config_dict():
+    return {
+        "menu_base_color": menu_base_color,
+        "aimbot_fov": aimbot_fov,
+        "aimbot_color": aimbot_color,
+        "_selected_hotkey": _selected_hotkey,
+        "_selected_hotkey_name": _selected_hotkey_name,
+        "esp_enabled": esp_enabled,
+        "aimbot_enabled": aimbot_enabled,
+        "machine_gun_enabled": machine_gun_enabled,
+        "machine_pistol_enabled": machine_pistol_enabled,
+        "machine_sniper_enabled": machine_sniper_enabled,
+        "machine_blunderbuss_enabled": machine_blunderbuss_enabled,
+        "godmode_enabled": godmode_enabled,
+        "infinity_ammo_enabled": infinity_ammo_enabled
+    }
+
+def apply_config(cfg: dict):
+    global menu_base_color, header_color, button_color, button_hover_color
+    global aimbot_fov, aimbot_color, _selected_hotkey, _selected_hotkey_name
+    global esp_enabled, aimbot_enabled, machine_gun_enabled, machine_pistol_enabled, machine_sniper_enabled, machine_blunderbuss_enabled
+    global godmode_enabled, infinity_ammo_enabled
+
+    try:
+        if "menu_base_color" in cfg:
+            menu_base_color = cfg["menu_base_color"]
+            header_color = menu_base_color
+            button_color = menu_base_color
+            button_hover_color = darken_color(button_color, 0.15)
+        if "aimbot_fov" in cfg:
+            aimbot_fov = float(cfg["aimbot_fov"])
+        if "aimbot_color" in cfg:
+            aimbot_color = cfg["aimbot_color"]
+        if "_selected_hotkey" in cfg:
+            _selected_hotkey = int(cfg["_selected_hotkey"])
+        if "_selected_hotkey_name" in cfg:
+            _selected_hotkey_name = str(cfg["_selected_hotkey_name"])
+        # boolean flags
+        esp_enabled = bool(cfg.get("esp_enabled", esp_enabled))
+        aimbot_enabled = bool(cfg.get("aimbot_enabled", aimbot_enabled))
+        machine_gun_enabled = bool(cfg.get("machine_gun_enabled", machine_gun_enabled))
+        machine_pistol_enabled = bool(cfg.get("machine_pistol_enabled", machine_pistol_enabled))
+        machine_sniper_enabled = bool(cfg.get("machine_sniper_enabled", machine_sniper_enabled))
+        machine_blunderbuss_enabled = bool(cfg.get("machine_blunderbuss_enabled", machine_blunderbuss_enabled))
+        godmode_enabled = bool(cfg.get("godmode_enabled", godmode_enabled))
+        infinity_ammo_enabled = bool(cfg.get("infinity_ammo_enabled", infinity_ammo_enabled))
+    except Exception:
+        pass
+
+    # apply UI updates
+    try:
+        apply_ui_colors()
+    except Exception:
+        pass
+    try:
+        style_widget_recursive(left_menu)
+        style_widget_recursive(right_panel)
+    except Exception:
+        pass
+    try:
+        # rebuild current page to refresh widgets (sloppy but simple)
+        show_page(current_page)
+    except Exception:
+        pass
+    try:
+        _draw_overlay_once()
+    except Exception:
+        pass
+
+def save_config_dialog():
+    cfg = get_config_dict()
+    path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files","*.json")], title="Save config as")
+    if not path:
+        return
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"Save config failed: {e}")
+
+def load_config_dialog():
+    path = filedialog.askopenfilename(filetypes=[("JSON files","*.json")], title="Load config")
+    if not path:
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        apply_config(cfg)
+        print(f"Config loaded: {path}")
+    except Exception as e:
+        print(f"Load config failed: {e}")
 
 # ---------------------------------------------------------
+# ------------------ доработка _draw_overlay_once: добавление ESP ------------------
 def _draw_overlay_once():
     global _overlay_canvas
     if not _overlay_canvas:
         return
     try:
         _overlay_canvas.delete("all")
-        # Only draw if aimbot is enabled
-        if not aimbot_enabled:
+        # Only draw overlay status box even if aimbot and esp are disabled
+        if not aimbot_enabled and not esp_enabled:
+            sw = _overlay_canvas.winfo_width()
+            sh = _overlay_canvas.winfo_height()
+            if sw > 0 and sh > 0:
+                try:
+                    _draw_status_box(sw, sh)
+                except Exception:
+                    pass
             return
         sw = _overlay_canvas.winfo_width()
         sh = _overlay_canvas.winfo_height()
@@ -1048,13 +1324,124 @@ def _draw_overlay_once():
         color = aimbot_color if aimbot_enabled else "#666666"
         outline_width = 2 if aimbot_enabled else 1
         try:
-            _overlay_canvas.create_oval(cx - radius, cy - radius, cx + radius, cy + radius, outline=color, width=outline_width)
-            ch = 12
-            _overlay_canvas.create_line(cx - ch, cy, cx + ch, cy, fill=color)
-            _overlay_canvas.create_line(cx, cy - ch, cx, cy + ch, fill=color)
-            _overlay_canvas.create_oval(cx-4, cy-4, cx+4, cy+4, fill=color, outline=color)
+            if aimbot_enabled:
+                _overlay_canvas.create_oval(cx - radius, cy - radius, cx + radius, cy + radius, outline=color, width=outline_width)
+                ch = 12
+                _overlay_canvas.create_line(cx - ch, cy, cx + ch, cy, fill=color)
+                _overlay_canvas.create_line(cx, cy - ch, cx, cy + ch, fill=color)
+                _overlay_canvas.create_oval(cx-4, cy-4, cx+4, cy+4, fill=color, outline=color)
         except Exception:
             pass
+
+        # ESP drawing (использует отдельные base для pos/health/name и offsets x/y/z)
+        if esp_enabled:
+            try:
+                # попытка получить локального игрока и углы обзора (если доступны)
+                lp_base = safe_resolve(AIMBOT_POINTERS["LocalPlayer"]["base"], [0x0])
+                view_pitch_addr = lp_base + AIMBOT_POINTERS["LocalPlayer"]["view_pitch_offset"] if lp_base else None
+                view_yaw_addr = lp_base + AIMBOT_POINTERS["LocalPlayer"]["view_yaw_offset"] if lp_base else None
+                try:
+                    current_pitch = pm.read_float(view_pitch_addr) if view_pitch_addr else 0.0
+                    current_yaw = pm.read_float(view_yaw_addr) if view_yaw_addr else 0.0
+                except Exception:
+                    current_pitch = 0.0; current_yaw = 0.0
+
+                # локальная позиция (fallback если не удалось прочитать)
+                local_pos = read_vec3(lp_base, AIMBOT_POINTERS["LocalPlayer"]["pos_offsets"]) if lp_base else None
+                if not local_pos:
+                    local_pos = (0.0, 0.0, 0.0)
+
+                ent_cfg = ESP_PLACEHOLDERS["EntityList"]
+                el_base = ent_cfg["base"]
+                entity_size = ent_cfg.get("entity_size", 0x10)
+
+                for i in range(ESP_PLACEHOLDERS["max_entities"]):
+                    # базовый адрес текущей записи (если используется один большой массив)
+                    ent_base = el_base + i * entity_size
+
+                    # читаем здоровье: используем health.base + i*entity_size + offset
+                    try:
+                        hp_base = ent_cfg["health"]["base"]
+                        hp_offset = ent_cfg["health"]["offset"]
+                        health_addr = hp_base + i * entity_size + hp_offset
+                        health = pm.read_int(health_addr)
+                        if health <= 0:
+                            continue
+                    except Exception:
+                        continue
+
+                    # читаем позицию по отдельным оффсетам (x/y/z)
+                    try:
+                        pos_base = ent_cfg["pos"]["base"]
+                        offs = ent_cfg["pos"]["offsets"]
+                        tx = pm.read_float(pos_base + i * entity_size + offs["x"])
+                        ty = pm.read_float(pos_base + i * entity_size + offs["y"])
+                        tz = pm.read_float(pos_base + i * entity_size + offs["z"])
+                        target_pos = (tx, ty, tz)
+                    except Exception:
+                        continue
+
+                    sx, sy = world_to_screen_local(local_pos, current_pitch, current_yaw, target_pos, sw, sh)
+                    if sx is None or sy is None:
+                        continue
+
+                    # размер бокса завязан на дистанции (аппроксимация)
+                    dx = target_pos[0] - local_pos[0]
+                    dy = target_pos[1] - local_pos[1]
+                    dist = math.hypot(dx, dy)
+                    size = max(10, int(500 / (dist + 1)))
+                    box_color = "#00FF88"
+                    try:
+                        _overlay_canvas.create_rectangle(sx - size, sy - size, sx + size, sy + size, outline=box_color, width=2)
+                        # HP текст
+                        _overlay_canvas.create_text(sx - size, sy - size - 10, anchor="nw", fill="#FFFFFF", text=f"HP:{health}", font=("Arial", 10))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        # after main drawing draw the status box
+        try:
+            _draw_status_box(sw, sh)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+# добавляем вспомогательную функцию отрисовки статуса (правый верхний угол)
+def _draw_status_box(sw, sh):
+    try:
+        padding = 12
+        box_w = 220
+        # collect feature statuses (no per-weapon entries)
+        lines = [
+            ("ESP", esp_enabled),
+            ("Aimbot", aimbot_enabled),
+            ("Machinegun", machine_gun_enabled),
+            ("Godmode", godmode_enabled),
+            ("Infinity Ammo", infinity_ammo_enabled)
+        ]
+        # шрифт и размеры
+        fnt = tkfont.Font(family="Arial", size=11)
+        line_h = fnt.metrics("linespace") + 2
+        box_h = padding * 2 + len(lines) * line_h
+        x2 = sw - padding
+        x1 = x2 - box_w
+        y1 = padding
+        y2 = y1 + box_h
+        # фон и цвет привязан к menu_base_color для активного состояния
+        bg = "#111111"
+        border = menu_base_color if menu_base_color else "#00FF88"
+        _overlay_canvas.create_rectangle(x1, y1, x2, y2, fill=bg, outline=border, width=1)
+        # заголовок
+        _overlay_canvas.create_text(x1 + 8, y1 + 6, anchor="nw", text="Enabled:", fill="#FFFFFF", font=tkfont.Font(family="Arial", size=12, weight="bold"))
+        # список
+        oy = y1 + 6 + line_h
+        for (name, val) in lines:
+            col = menu_base_color if val and menu_base_color else ("#00FF88" if val else "#888888")
+            text = f"• {name}"
+            _overlay_canvas.create_text(x1 + 10, oy, anchor="nw", text=text, fill=col, font=fnt)
+            oy += line_h
     except Exception:
         pass
 
