@@ -11,6 +11,7 @@ import threading
 import time
 import math
 from ctypes import wintypes
+import os
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -22,6 +23,21 @@ ctk.set_default_color_theme("blue")
 
 # base menu color; header_color and button_color are equal to this
 menu_base_color = "#0077CC"
+
+# compute text contrast color (black on light backgrounds, white otherwise)
+text_contrast_color = "#FFFFFF"
+
+def _is_light_color(hexcol: str, threshold: int = 180) -> bool:
+    try:
+        h = hexcol.lstrip('#')
+        r = int(h[0:2], 16)
+        g = int(h[2:4], 16)
+        b = int(h[4:6], 16)
+        # perceived brightness
+        brightness = (0.299 * r + 0.587 * g + 0.114 * b)
+        return brightness >= threshold
+    except Exception:
+        return False
 
 def darken_color(hexcol: str, amount: float = 0.15) -> str:
     try:
@@ -43,20 +59,52 @@ button_hover_color = darken_color(button_color, 0.15)
 
 def apply_ui_colors():
     global button_hover_color
+    global text_contrast_color
     try:
         # recalc hover in case base changed
         button_hover_color = darken_color(button_color, 0.15)
     except Exception:
         pass
     try:
-        header.configure(fg_color=header_color)
+        # set text contrast based on menu color
+        text_contrast_color = "#000000" if _is_light_color(menu_base_color) else "#FFFFFF"
+    except Exception:
+        text_contrast_color = "#FFFFFF"
+    try:
+        header.configure(fg_color=header_color, text_color=text_contrast_color)
     except Exception:
         pass
     try:
-        # update buttons in left_menu
+        # update immediate children in left_menu: only buttons get text_color changed,
+        # checkboxes keep their own text color and must never be overwritten.
         for widget in left_menu.winfo_children():
             try:
-                widget.configure(fg_color=button_color, hover_color=button_hover_color)
+                if isinstance(widget, ctk.CTkButton):
+                    try:
+                        widget.configure(fg_color=button_color, hover_color=button_hover_color, text_color=text_contrast_color)
+                    except Exception:
+                        try:
+                            widget.configure(fg_color=button_color, hover_color=button_hover_color)
+                        except Exception:
+                            pass
+                elif isinstance(widget, ctk.CTkCheckBox):
+                    # DO NOT change text_color for checkboxes — preserve their original color
+                    try:
+                        widget.configure(fg_color=button_color, hover_color=button_hover_color)
+                    except Exception:
+                        try:
+                            widget.configure(fg_color=button_color)
+                        except Exception:
+                            pass
+                else:
+                    # fallback for other widgets: try to set button-like colors including contrasting text
+                    try:
+                        widget.configure(fg_color=button_color, hover_color=button_hover_color, text_color=text_contrast_color)
+                    except Exception:
+                        try:
+                            widget.configure(fg_color=button_color, hover_color=button_hover_color)
+                        except Exception:
+                            pass
             except Exception:
                 pass
     except Exception:
@@ -74,19 +122,162 @@ def apply_ui_colors():
     except Exception:
         pass
 
+# --- color animation helpers for hover ---
+def _hex_to_rgb(h):
+    h = h.lstrip('#')
+    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+def _rgb_to_hex(rgb):
+    return '#%02x%02x%02x' % (max(0, min(255, int(rgb[0]))), max(0, min(255, int(rgb[1]))), max(0, min(255, int(rgb[2]))))
+
+def _lerp(a, b, t):
+    return a + (b - a) * t
+
+def animate_widget_color(widget, start_hex, end_hex, duration=150, steps=10):
+    try:
+        # cancel previous animation if running
+        try:
+            if hasattr(widget, '_hover_anim_after') and widget._hover_anim_after:
+                try:
+                    widget.after_cancel(widget._hover_anim_after)
+                except Exception:
+                    pass
+                widget._hover_anim_after = None
+        except Exception:
+            pass
+        # compute start from stored current color if available to avoid jumps
+        cur_hex = getattr(widget, '_current_fg', None) or start_hex
+        start_rgb = _hex_to_rgb(cur_hex)
+        end_rgb = _hex_to_rgb(end_hex)
+        step = {'i': 0}
+        step_duration = max(1, duration // max(1, steps))
+
+        def _step():
+            try:
+                t = step['i'] / float(steps)
+                r = _lerp(start_rgb[0], end_rgb[0], t)
+                g = _lerp(start_rgb[1], end_rgb[1], t)
+                b = _lerp(start_rgb[2], end_rgb[2], t)
+                col = _rgb_to_hex((r, g, b))
+                # update both fg_color and hover_color to avoid CTk internal hover conflicting
+                try:
+                    widget.configure(fg_color=col)
+                except Exception:
+                    pass
+                try:
+                    # попытка также установить hover_color, но в безопасном try
+                    widget.configure(hover_color=col)
+                except Exception:
+                    pass
+                # remember current color
+                try:
+                    widget._current_fg = col
+                except Exception:
+                    pass
+                step['i'] += 1
+                if step['i'] <= steps:
+                    widget._hover_anim_after = widget.after(step_duration, _step)
+                else:
+                    widget._hover_anim_after = None
+            except Exception:
+                try:
+                    widget._hover_anim_after = None
+                except Exception:
+                    pass
+
+        _step()
+    except Exception:
+        pass
+
 # added: recursively apply styles to buttons/checkboxes inside container
 def style_widget_recursive(container):
     try:
         for w in container.winfo_children():
             try:
                 if isinstance(w, ctk.CTkButton):
-                    w.configure(fg_color=button_color, hover_color=button_hover_color)
-                elif isinstance(w, ctk.CTkCheckBox):
-                    # CTkCheckBox may not support hover_color — try safely
                     try:
-                        w.configure(fg_color=button_color, hover_color=button_hover_color)
+                        w.configure(fg_color=button_color, hover_color=button_hover_color, text_color=text_contrast_color)
                     except Exception:
-                        w.configure(fg_color=button_color)
+                        try:
+                            w.configure(fg_color=button_color, hover_color=button_hover_color)
+                        except Exception:
+                            try:
+                                w.configure(fg_color=button_color)
+                            except Exception:
+                                pass
+                    # attach animated hover handlers once (also to children to catch events over inner widgets)
+                    try:
+                        if not getattr(w, '_hover_bind_attached', False):
+                            def _on_enter(e, widget=w):
+                                try:
+                                    # use current stored color as start to avoid jump
+                                    s = getattr(widget, '_current_fg', button_color) or button_color
+                                    animate_widget_color(widget, s, button_hover_color, duration=120, steps=8)
+                                except Exception:
+                                    pass
+
+                            def _on_leave(e, widget=w):
+                                try:
+                                    s = getattr(widget, '_current_fg', button_hover_color) or button_hover_color
+                                    animate_widget_color(widget, s, button_color, duration=120, steps=8)
+                                except Exception:
+                                    pass
+
+                            # bind to widget and all its children so enter/leave fire reliably
+                            try:
+                                w.bind("<Enter>", _on_enter)
+                                w.bind("<Leave>", _on_leave)
+                                for child in w.winfo_children():
+                                    try:
+                                        child.bind("<Enter>", _on_enter)
+                                        child.bind("<Leave>", _on_leave)
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                            w._hover_bind_attached = True
+                    except Exception:
+                        pass
+                elif isinstance(w, ctk.CTkCheckBox):
+                    # DO NOT modify text_color for checkboxes — preserve their label color
+                    try:
+                        try:
+                            w.configure(fg_color=button_color, hover_color=button_hover_color)
+                        except Exception:
+                            w.configure(fg_color=button_color)
+                    except Exception:
+                        pass
+                    # attach animated hover handlers once (same behavior as buttons)
+                    try:
+                        if not getattr(w, '_hover_bind_attached', False):
+                            def _on_enter_cb(e, widget=w):
+                                try:
+                                    s = getattr(widget, '_current_fg', button_color) or button_color
+                                    animate_widget_color(widget, s, button_hover_color, duration=120, steps=8)
+                                except Exception:
+                                    pass
+
+                            def _on_leave_cb(e, widget=w):
+                                try:
+                                    s = getattr(widget, '_current_fg', button_hover_color) or button_hover_color
+                                    animate_widget_color(widget, s, button_color, duration=120, steps=8)
+                                except Exception:
+                                    pass
+
+                            try:
+                                w.bind("<Enter>", _on_enter_cb)
+                                w.bind("<Leave>", _on_leave_cb)
+                                for child in w.winfo_children():
+                                    try:
+                                        child.bind("<Enter>", _on_enter_cb)
+                                        child.bind("<Leave>", _on_leave_cb)
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                            w._hover_bind_attached = True
+                    except Exception:
+                        pass
             except Exception:
                 pass
             # recursively process child widgets
@@ -332,6 +523,8 @@ threading.Thread(target=infinity_ammo_loop, daemon=True).start()
 aimbot_enabled = False
 aimbot_fov = 45.0  # degrees
 aimbot_color = "#00FF88"
+# whether to show the FOV circle in UI and overlay (default: enabled)
+show_aimbot_fov = True
 
 AIMBOT_POINTERS = {
 	"LocalPlayer": {
@@ -442,6 +635,7 @@ header = ctk.CTkLabel(
     text="Pizza Mega Hack 🍕",
     font=ctk.CTkFont(size=50, weight="bold"),
     fg_color="#0077CC",
+    text_color=text_contrast_color,
     height=80
 )
 header.pack(fill="x")
@@ -545,21 +739,33 @@ def _toggle_menu():
     try:
         if _menu_visible:
             # fade out animation (faster)
-            _animate_alpha(0.95, 0.0, duration=25, is_closing=True)
+            # сделать закрытие чуть медленнее и плавнее
+            _animate_alpha(0.95, 0.0, duration=80, is_closing=True)
             _menu_visible = False
         else:
             # fade in animation (faster)
-            _animate_alpha(0.0, 0.95, duration=25, is_closing=False)
+            # сделать открытие чуть медленнее и плавнее
+            _animate_alpha(0.0, 0.95, duration=80, is_closing=False)
             _menu_visible = True
     except Exception:
         pass
 
-def _animate_alpha(start_alpha, end_alpha, duration=100, is_closing=False):
-    """Animate window alpha from start to end over duration milliseconds"""
-    steps = 10
-    step_duration = duration // steps
+def _animate_alpha(start_alpha, end_alpha, duration=30, is_closing=False, on_complete=None):
+    """Animate window alpha from start to end over duration milliseconds.
+    Optionally call on_complete() after animation finishes."""
+    # увеличить число шагов для более плавной и чуть более медленной анимации
+    steps = 12
+    # сделать фейд чуть быстрее: уменьшить дефолт при использовании стандартного значения
+    if duration == 60:
+        duration = 40
+    step_duration = max(1, duration // steps)
     current_step = [0]
-    
+    # ensure starting alpha set
+    try:
+        root.attributes("-alpha", start_alpha)
+    except Exception:
+        pass
+
     def animate_step():
         if current_step[0] <= steps:
             progress = current_step[0] / steps
@@ -576,25 +782,53 @@ def _animate_alpha(start_alpha, end_alpha, duration=100, is_closing=False):
                 root.attributes("-alpha", end_alpha)
             except Exception:
                 pass
-    
+            # call completion callback if provided
+            if callable(on_complete):
+                try:
+                    on_complete()
+                except Exception:
+                    pass
+
     animate_step()
 
 # Global hook constants
 WH_KEYBOARD_LL = 13
 WM_KEYDOWN = 0x0100
+WM_KEYUP = 0x0101
 
-# Define keyboard hook function
+# совместимый тип ULONG_PTR (fallback если wintypes.ULONG_PTR отсутствует)
+ULONG_PTR_TYPE = getattr(wintypes, "ULONG_PTR", ctypes.c_void_p)
+
+# структура для KBDLLHOOKSTRUCT
+class KBDLLHOOKSTRUCT(ctypes.Structure):
+    _fields_ = [
+        ("vkCode", wintypes.DWORD),
+        ("scanCode", wintypes.DWORD),
+        ("flags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", ULONG_PTR_TYPE),
+    ]
+
+# корректный тип для хук-процедуры
+HOOKPROC = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
+
+# Define keyboard hook function (fixed: read vkCode properly)
 def _keyboard_hook_proc(nCode, wParam, lParam):
     if nCode >= 0 and wParam == WM_KEYDOWN:
         try:
-            vkCode = ctypes.c_int(lParam[0]).value
-            if vkCode == _selected_hotkey:  # Use _selected_hotkey instead of 0x7B
-                root.after(0, _toggle_menu)
+            kb = ctypes.cast(lParam, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
+            vk = int(kb.vkCode)
+            if vk == _selected_hotkey:
+                # немедленный вызов в основном потоке
+                try:
+                    root.after(0, _toggle_menu)
+                except Exception:
+                    _toggle_menu()
         except Exception:
             pass
-    return ctypes.windll.user32.CallNextHookEx(0, nCode, wParam, lParam)
+    return ctypes.windll.user32.CallNextHookEx(None, nCode, wParam, lParam)
 
-_hook_proc_type = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int)
+_hook_proc_type = HOOKPROC
 _hook_proc = _hook_proc_type(_keyboard_hook_proc)
 _hook_handle = None
 
@@ -629,15 +863,28 @@ def _hotkey_thread_listener():
     """Fallback: listen for selected hotkey in separate thread using GetAsyncKeyState"""
     while True:
         try:
-            # Check if selected hotkey is pressed
             state = ctypes.windll.user32.GetAsyncKeyState(_selected_hotkey)
-            if state & 0x8001:  # Key is pressed
-                time.sleep(0.2)  # Debounce
-                _toggle_menu()
-                time.sleep(0.3)  # Prevent multiple triggers
+            # проверяем только старший бит — клавиша нажата
+            if state & 0x8000:
+                # сразу запланировать переключение в основном потоке
+                try:
+                    root.after(0, _toggle_menu)
+                except Exception:
+                    _toggle_menu()
+                # дождаться отпускания клавиши, чтобы не сработало многократно
+                while True:
+                    try:
+                        st2 = ctypes.windll.user32.GetAsyncKeyState(_selected_hotkey)
+                        if not (st2 & 0x8000):
+                            break
+                    except Exception:
+                        break
+                    time.sleep(0.01)
+                # короткий cooldown
+                time.sleep(0.08)
         except Exception:
             pass
-        time.sleep(0.01)
+        time.sleep(0.005)
 
 def unregister_global_hook():
     global _hook_handle
@@ -650,6 +897,11 @@ def unregister_global_hook():
 
 def on_exit():
     try:
+        # save default config on exit
+        try:
+            save_config_default()
+        except Exception:
+            pass
         unregister_global_hook()
     except Exception:
         pass
@@ -672,32 +924,149 @@ except Exception:
 # ---------------------------------------------------------
 # PAGE SYSTEM
 # ---------------------------------------------------------
-def show_page(page):
-    for widget in right_panel.winfo_children():
-        widget.destroy()
-    if page == "Misc":
-        build_misc_page()
-    elif page == "Weapon":
-        build_weapon_page()
-    elif page == "Player":
-        build_player_page()
-    elif page == "Settings":
-        build_settings_page()
-    # apply colors to new page widgets
+# helper: create/destroy overlay covering only right_panel
+def _create_right_panel_overlay():
     try:
-        apply_ui_colors()
-        style_widget_recursive(right_panel)
+        # ensure geometry updated
+        right_panel.update_idletasks()
+        rx = right_panel.winfo_rootx()
+        ry = right_panel.winfo_rooty()
+        rw = right_panel.winfo_width()
+        rh = right_panel.winfo_height()
+        if rw <= 0 or rh <= 0:
+            return None
+        ov = tk.Toplevel(root)
+        ov.overrideredirect(True)
+        ov.attributes("-topmost", True)
+        ov.geometry(f"{rw}x{rh}+{rx}+{ry}")
+        ov.config(bg="black")
+        try:
+            ov.attributes("-alpha", 0.0)
+        except Exception:
+            pass
+        return ov
+    except Exception:
+        return None
+
+def _animate_overlay_alpha(ov, start_alpha, end_alpha, duration=60, on_complete=None):
+    try:
+        # увеличить шаги и дефолтную длительность для более плавного, чуть более медленного фейда
+        steps = 12
+        # сделать фейд чуть быстрее: уменьшить дефолт при использовании стандартного значения
+        if duration == 60:
+            duration = 40
+        step_duration = max(1, duration // steps)
+        current = [0]
+        try:
+            ov.attributes("-alpha", start_alpha)
+        except Exception:
+            pass
+        def step():
+            if current[0] <= steps:
+                t = current[0] / steps
+                a = start_alpha + (end_alpha - start_alpha) * t
+                try:
+                    ov.attributes("-alpha", a)
+                except Exception:
+                    pass
+                current[0] += 1
+                root.after(step_duration, step)
+            else:
+                try:
+                    ov.attributes("-alpha", end_alpha)
+                except Exception:
+                    pass
+                if callable(on_complete):
+                    try:
+                        on_complete()
+                    except Exception:
+                        pass
+        step()
+    except Exception:
+        if callable(on_complete):
+            try:
+                on_complete()
+            except Exception:
+                pass
+
+def show_page(page):
+    """Fade only right_panel content: overlay fades in (covering), switch content, fade out and destroy overlay."""
+    try:
+        def do_switch_and_fadeout(ov):
+            # switch content while overlay hides content
+            for widget in right_panel.winfo_children():
+                widget.destroy()
+            if page == "Misc":
+                build_misc_page()
+            elif page == "Weapon":
+                build_weapon_page()
+            elif page == "Player":
+                build_player_page()
+            elif page == "Settings":
+                build_settings_page()
+            try:
+                apply_ui_colors()
+                style_widget_recursive(right_panel)
+            except Exception:
+                pass
+
+            # обеспечить отрисовку новых виджетов перед началом fade-out
+            try:
+                right_panel.update_idletasks()
+                root.update()
+            except Exception:
+                pass
+
+            # небольшая пауза чтобы тяжёлые виджеты успели отрисоваться (можно уменьшить)
+            def start_fade_out():
+                # fade overlay out to reveal new content, then destroy it
+                def after_hide():
+                    try:
+                        ov.destroy()
+                    except Exception:
+                        pass
+                _animate_overlay_alpha(ov, 0.95, 0.0, duration=40, on_complete=after_hide)
+
+            try:
+                # убрать искусственную задержку — переключаемся сразу, чтобы элементы загружались без лишней задержки
+                root.after(0, start_fade_out)
+            except Exception:
+                # fallback сразу запустить fade-out если after не сработал
+                start_fade_out()
+
+        ov = _create_right_panel_overlay()
+        if not ov:
+            # fallback: immediate switch
+            for widget in right_panel.winfo_children():
+                widget.destroy()
+            if page == "Misc":
+                build_misc_page()
+            elif page == "Weapon":
+                build_weapon_page()
+            elif page == "Player":
+                build_player_page()
+            elif page == "Settings":
+                build_settings_page()
+            try:
+                apply_ui_colors()
+                style_widget_recursive(right_panel)
+            except Exception:
+                pass
+            return
+
+        # fade overlay in then switch content
+        _animate_overlay_alpha(ov, 0.0, 0.95, duration=40, on_complete=lambda: do_switch_and_fadeout(ov))
     except Exception:
         pass
 
-# добавляем текущую страницу и helper для открытия страницы (обновляет current_page)
+# восстановим текущую страницу и helper для открытия страницы (обновляет current_page)
 current_page = "Player"
 def open_page(p):
     global current_page
     current_page = p
     show_page(p)
 
-# add tabs including Settings (заменено command на open_page)
+# создаём кнопки вкладок в левом меню (Player/Weapon/Misc/Settings)
 for b in ["Player", "Weapon", "Misc", "Settings"]:
     ctk.CTkButton(
         left_menu,
@@ -710,17 +1079,63 @@ for b in ["Player", "Weapon", "Misc", "Settings"]:
         command=lambda p=b: open_page(p)
     ).pack(fill="x", padx=15, pady=10)
 
-# apply current UI colors
+# применим цвета к только что созданным кнопкам
 try:
     apply_ui_colors()
 except Exception:
     pass
+
+# try load default config and build initial page
+try:
+    load_config_default()
+except Exception:
+    pass
+try:
+    show_page(current_page)
+except Exception:
+    # fallback: build player page directly
+    try:
+        for widget in right_panel.winfo_children():
+            widget.destroy()
+        build_player_page()
+    except Exception:
+        pass
+
+# default config path for autosave/autoload
+DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "pizza_config.json")
+
+def save_config_default():
+    try:
+        cfg = get_config_dict()
+        with open(DEFAULT_CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+def load_config_default():
+    try:
+        if os.path.exists(DEFAULT_CONFIG_PATH):
+            with open(DEFAULT_CONFIG_PATH, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            apply_config(cfg)
+            print(f"Default config loaded: {DEFAULT_CONFIG_PATH}")
+            return True
+    except Exception as e:
+        print(f"Failed to load default config: {e}")
+    return False
 
 # ---------------------------------------------------------
 # PLAYER PAGE
 # ---------------------------------------------------------
 # ------------------ ESP: globals and placeholder offsets ------------------
 esp_enabled = False
+
+# ESP visual settings (user-configurable)
+esp_box_color = "#00FF88"
+esp_show_boxes = True
+esp_show_health = True
+esp_box_scale = 1.0
+esp_box_outline_width = 2
 
 ESP_PLACEHOLDERS = {
     "EntityList": {
@@ -772,6 +1187,10 @@ def build_player_page():
             _draw_overlay_once()
         except Exception:
             pass
+        try:
+            draw_esp_preview()
+        except Exception:
+            pass
         print("ESP ON 💀" if esp_enabled else "ESP OFF ❌")
 
     esp_checkbox = ctk.CTkCheckBox(
@@ -788,6 +1207,182 @@ def build_player_page():
     except Exception:
         pass
     esp_checkbox.pack(anchor="w", pady=10, padx=10)
+    # --- ESP visual options: boxes, health display, color and scale ---
+    def toggle_esp_boxes():
+        global esp_show_boxes
+        try:
+            esp_show_boxes = bool(esp_boxes_cb.get())
+        except Exception:
+            esp_show_boxes = False
+        try:
+            _draw_overlay_once()
+        except Exception:
+            pass
+        try:
+            draw_esp_preview()
+        except Exception:
+            pass
+
+
+    def toggle_esp_health():
+        global esp_show_health
+        try:
+            esp_show_health = bool(esp_health_cb.get())
+        except Exception:
+            esp_show_health = False
+        try:
+            _draw_overlay_once()
+        except Exception:
+            pass
+        try:
+            draw_esp_preview()
+        except Exception:
+            pass
+
+    def choose_esp_color():
+        global esp_box_color
+        try:
+            col = colorchooser.askcolor(title="Choose ESP box color")[1]
+            if col:
+                esp_box_color = col
+                try:
+                    esp_color_btn.configure(fg_color=esp_box_color)
+                except Exception:
+                    pass
+                try:
+                    _draw_overlay_once()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            draw_esp_preview()
+        except Exception:
+            pass
+
+    def set_box_scale(val):
+        global esp_box_scale
+        try:
+            esp_box_scale = float(val)
+        except Exception:
+            try:
+                esp_box_scale = float(int(val))
+            except Exception:
+                esp_box_scale = 1.0
+        try:
+            _draw_overlay_once()
+        except Exception:
+            pass
+        try:
+            draw_esp_preview()
+        except Exception:
+            pass
+
+    # layout: preview (left) + controls (right) similar to Aimbot tab
+    esp_frame = ctk.CTkFrame(content, fg_color="black")
+    esp_frame.pack(anchor="w", pady=6, padx=10)
+
+    preview_size = 220
+    preview_canvas = tk.Canvas(esp_frame, width=preview_size, height=preview_size, bg="#0b0b0b", highlightthickness=0)
+    preview_canvas.pack(side="left", padx=(10,20))
+
+    def draw_esp_preview():
+        try:
+            preview_canvas.delete("all")
+            cx = cy = preview_size // 2
+
+            # compute base short/long sides and apply proportional scale
+            col = esp_box_color or "#00FF88"
+            base_short = max(6, int(preview_size * 0.18))
+            base_long = max(10, int(base_short * 1.7))
+            short_side = max(4, int(base_short * esp_box_scale))
+            long_side = max(6, int(base_long * esp_box_scale))
+
+            # short side should be horizontal (rotate/flip rectangle)
+            box_w = short_side
+            box_h = long_side
+
+            left = cx - box_w // 2
+            right = cx + box_w // 2
+            top = cy - box_h // 2
+            bottom = cy + box_h // 2
+
+            # clamp to canvas bounds (leave 2px margin)
+            left = max(2, left)
+            top = max(2, top)
+            right = min(preview_size - 2, right)
+            bottom = min(preview_size - 2, bottom)
+
+            if esp_show_boxes:
+                try:
+                    # if ESP disabled, show gray like aimbot preview
+                    draw_col = (esp_box_color if esp_enabled else "#666666")
+                    preview_canvas.create_rectangle(left, top, right, bottom, outline=draw_col, width=max(1, int(esp_box_outline_width)))
+                except Exception:
+                    pass
+            else:
+                # draw faint crosshair when boxes disabled
+                ch = 10
+                preview_canvas.create_line(cx - ch, cy, cx + ch, cy, fill="#666666")
+                preview_canvas.create_line(cx, cy - ch, cx, cy + ch, fill="#666666")
+
+            if esp_show_health:
+                try:
+                    # draw HP text inside top-left of the box but ensure visibility
+                    tx = left + 4
+                    ty = max(4, top - 12)
+                    preview_canvas.create_text(tx, ty, anchor="nw", text="HP:100", fill="#FFFFFF", font=("Arial", 9))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    control_frame = ctk.CTkFrame(esp_frame, fg_color="black")
+    control_frame.pack(side="left", fill="both", expand=True)
+
+    esp_boxes_cb = ctk.CTkCheckBox(control_frame, text="Show Boxes", font=ctk.CTkFont(size=16), command=toggle_esp_boxes)
+    try:
+        if esp_show_boxes:
+            esp_boxes_cb.select()
+        else:
+            esp_boxes_cb.deselect()
+    except Exception:
+        pass
+    esp_boxes_cb.pack(anchor="w", pady=(6,2), padx=10)
+
+    esp_health_cb = ctk.CTkCheckBox(control_frame, text="Show Health", font=ctk.CTkFont(size=16), command=toggle_esp_health)
+    try:
+        if esp_show_health:
+            esp_health_cb.select()
+        else:
+            esp_health_cb.deselect()
+    except Exception:
+        pass
+    esp_health_cb.pack(anchor="w", pady=(2,10), padx=10)
+
+    # color + scale row
+    c_row = ctk.CTkFrame(control_frame, fg_color="black")
+    c_row.pack(anchor="w", pady=6, padx=10)
+    esp_color_btn = ctk.CTkButton(c_row, text="", width=30, height=30, fg_color=esp_box_color, command=choose_esp_color)
+    esp_color_btn.pack(side="left", padx=(0,10))
+    ctk.CTkLabel(c_row, text="Box color", font=ctk.CTkFont(size=14)).pack(side="left", padx=(0,10))
+
+    # scale slider
+    scale_row = ctk.CTkFrame(control_frame, fg_color="black")
+    scale_row.pack(anchor="w", pady=6, padx=10)
+    ctk.CTkLabel(scale_row, text="Box scale:", font=ctk.CTkFont(size=14)).pack(side="left", padx=(0,8))
+    scale_slider = ctk.CTkSlider(scale_row, from_=0.5, to=2.5, number_of_steps=20, command=set_box_scale)
+    try:
+        scale_slider.set(esp_box_scale)
+    except Exception:
+        pass
+    scale_slider.pack(side="left", fill="x", expand=True)
+
+    # preview is drawn above inside esp_frame
+    try:
+        draw_esp_preview()
+    except Exception:
+        pass
 
 # ---------------------------------------------------------
 # WEAPON PAGE
@@ -874,20 +1469,24 @@ def build_weapon_page():
     fov_slider.pack(anchor="n", pady=6, padx=(0,12), fill="x")
 
     def draw_fov():
-        canvas.delete("all")
-        cx = cy = canvas_size // 2
-        max_radius = min(cx, cy) - 10
-        radius = int((aimbot_fov / 180.0) * max_radius)
-        outline = aimbot_color if aimbot_enabled else "#666666"
-        try:
-            canvas.create_oval(cx - radius, cy - radius, cx + radius, cy + radius, outline=outline, width=2)
-            ch = 10
-            canvas.create_line(cx - ch, cy, cx + ch, cy, fill=outline)
-            canvas.create_line(cx, cy - ch, cx, cy + ch, fill=outline)
-            canvas.create_oval(cx-3, cy-3, cx+3, cy+3, fill=outline, outline=outline)
-            canvas.create_text(10, canvas_size-10, anchor="w", fill="#BBBBBB", text=f"FOV {int(aimbot_fov)}°")
-        except Exception:
-            pass
+            canvas.delete("all")
+            cx = cy = canvas_size // 2
+            max_radius = min(cx, cy) - 10
+            radius = int((aimbot_fov / 180.0) * max_radius)
+            outline = aimbot_color if aimbot_enabled else "#666666"
+            try:
+                # draw circle only if user wants to see it
+                if show_aimbot_fov:
+                    canvas.create_oval(cx - radius, cy - radius, cx + radius, cy + radius, outline=outline, width=2)
+                # keep crosshair and center dot when aimbot enabled
+                if aimbot_enabled:
+                    ch = 10
+                    canvas.create_line(cx - ch, cy, cx + ch, cy, fill=outline)
+                    canvas.create_line(cx, cy - ch, cx, cy + ch, fill=outline)
+                    canvas.create_oval(cx-3, cy-3, cx+3, cy+3, fill=outline, outline=outline)
+                canvas.create_text(10, canvas_size-10, anchor="w", fill="#BBBBBB", text=f"FOV {int(aimbot_fov)}°")
+            except Exception:
+                pass
 
     draw_fov()
 
@@ -1086,7 +1685,7 @@ def build_settings_page():
     ctk.CTkLabel(row, text="Menu color:", font=ctk.CTkFont(size=18)).pack(side="left", padx=(0,10))
 
     def choose_menu_color():
-        global menu_base_color, header_color, button_color, button_hover_color, aimbot_color
+        global menu_base_color, header_color, button_color, button_hover_color, aimbot_color, esp_box_color
         try:
             col = colorchooser.askcolor(title="Choose menu color")[1]
             if col:
@@ -1096,6 +1695,11 @@ def build_settings_page():
                 button_hover_color = darken_color(button_color, 0.15)
                 # sync aimbot color with menu color
                 aimbot_color = menu_base_color
+                # also sync ESP box color with menu color
+                try:
+                    esp_box_color = menu_base_color
+                except Exception:
+                    pass
                 try:
                     color_preview.configure(fg_color=menu_base_color)
                 except Exception:
@@ -1125,7 +1729,7 @@ def build_settings_page():
     color_preview = ctk.CTkButton(row, text="", width=40, height=30, fg_color=menu_base_color, command=choose_menu_color)
     color_preview.pack(side="left", padx=(0,10))
 
-    ctk.CTkButton(row, text="Choose...", command=choose_menu_color, font=ctk.CTkFont(size=16)).pack(side="left")
+    ctk.CTkButton(row, text="Choose", command=choose_menu_color, font=ctk.CTkFont(size=16)).pack(side="left")
 
     # ---- Hotkey Selection ----
     hotkey_row = ctk.CTkFrame(content, fg_color="black")
@@ -1167,7 +1771,7 @@ def build_settings_page():
     ctk.CTkButton(
         save_load_row,
         text="Save Config",
-        font=ctk.CTkFont(size=14),
+        font=ctk.CTkFont(size=16),
         fg_color=button_color,
         hover_color=button_hover_color,
         command=save_config_dialog,
@@ -1178,7 +1782,7 @@ def build_settings_page():
     ctk.CTkButton(
         save_load_row,
         text="Load Config",
-        font=ctk.CTkFont(size=14),
+        font=ctk.CTkFont(size=16),
         fg_color=button_color,
         hover_color=button_hover_color,
         command=load_config_dialog,
@@ -1207,6 +1811,11 @@ def get_config_dict():
         "menu_base_color": menu_base_color,
         "aimbot_fov": aimbot_fov,
         "aimbot_color": aimbot_color,
+        "esp_box_color": esp_box_color,
+        "esp_show_boxes": esp_show_boxes,
+        "esp_show_health": esp_show_health,
+        "esp_box_scale": esp_box_scale,
+        "esp_box_outline_width": esp_box_outline_width,
         "_selected_hotkey": _selected_hotkey,
         "_selected_hotkey_name": _selected_hotkey_name,
         "esp_enabled": esp_enabled,
@@ -1223,6 +1832,7 @@ def apply_config(cfg: dict):
     global menu_base_color, header_color, button_color, button_hover_color
     global aimbot_fov, aimbot_color, _selected_hotkey, _selected_hotkey_name
     global esp_enabled, aimbot_enabled, machine_gun_enabled, machine_pistol_enabled, machine_sniper_enabled, machine_blunderbuss_enabled
+    global esp_box_color, esp_show_boxes, esp_show_health, esp_box_scale, esp_box_outline_width
     global godmode_enabled, infinity_ammo_enabled
 
     try:
@@ -1235,6 +1845,22 @@ def apply_config(cfg: dict):
             aimbot_fov = float(cfg["aimbot_fov"])
         if "aimbot_color" in cfg:
             aimbot_color = cfg["aimbot_color"]
+        if "esp_box_color" in cfg:
+            esp_box_color = cfg["esp_box_color"]
+        if "esp_show_boxes" in cfg:
+            esp_show_boxes = bool(cfg["esp_show_boxes"])
+        if "esp_show_health" in cfg:
+            esp_show_health = bool(cfg["esp_show_health"])
+        if "esp_box_scale" in cfg:
+            try:
+                esp_box_scale = float(cfg["esp_box_scale"])
+            except Exception:
+                esp_box_scale = float(1.0)
+        if "esp_box_outline_width" in cfg:
+            try:
+                esp_box_outline_width = int(cfg["esp_box_outline_width"])
+            except Exception:
+                esp_box_outline_width = 2
         if "_selected_hotkey" in cfg:
             _selected_hotkey = int(cfg["_selected_hotkey"])
         if "_selected_hotkey_name" in cfg:
@@ -1320,22 +1946,31 @@ def _draw_overlay_once():
         cy = sh // 2
         max_r = min(cx, cy) - 20
         radius = int((aimbot_fov / 180.0) * max_r)
-        # draw FOV circle only when aimbot is enabled
+        # draw FOV circle (only when user enabled showing it) and crosshair/dot when aimbot is enabled
         color = aimbot_color if aimbot_enabled else "#666666"
         outline_width = 2 if aimbot_enabled else 1
         try:
+            # circle visibility controlled by show_aimbot_fov
+            if show_aimbot_fov:
+                try:
+                    _overlay_canvas.create_oval(cx - radius, cy - radius, cx + radius, cy + radius, outline=color, width=outline_width)
+                except Exception:
+                    pass
+            # crosshair and center dot still drawn when aimbot is enabled
             if aimbot_enabled:
-                _overlay_canvas.create_oval(cx - radius, cy - radius, cx + radius, cy + radius, outline=color, width=outline_width)
-                ch = 12
-                _overlay_canvas.create_line(cx - ch, cy, cx + ch, cy, fill=color)
-                _overlay_canvas.create_line(cx, cy - ch, cx, cy + ch, fill=color)
-                _overlay_canvas.create_oval(cx-4, cy-4, cx+4, cy+4, fill=color, outline=color)
+                try:
+                    ch = 12
+                    _overlay_canvas.create_line(cx - ch, cy, cx + ch, cy, fill=color)
+                    _overlay_canvas.create_line(cx, cy - ch, cx, cy + ch, fill=color)
+                    _overlay_canvas.create_oval(cx-4, cy-4, cx+4, cy+4, fill=color, outline=color)
+                except Exception:
+                    pass
         except Exception:
             pass
 
         # ESP drawing (использует отдельные base для pos/health/name и offsets x/y/z)
-        if esp_enabled:
-            try:
+        try:
+            if esp_enabled:
                 # попытка получить локального игрока и углы обзора (если доступны)
                 lp_base = safe_resolve(AIMBOT_POINTERS["LocalPlayer"]["base"], [0x0])
                 view_pitch_addr = lp_base + AIMBOT_POINTERS["LocalPlayer"]["view_pitch_offset"] if lp_base else None
@@ -1390,15 +2025,63 @@ def _draw_overlay_once():
                     dy = target_pos[1] - local_pos[1]
                     dist = math.hypot(dx, dy)
                     size = max(10, int(500 / (dist + 1)))
-                    box_color = "#00FF88"
                     try:
-                        _overlay_canvas.create_rectangle(sx - size, sy - size, sx + size, sy + size, outline=box_color, width=2)
-                        # HP текст
-                        _overlay_canvas.create_text(sx - size, sy - size - 10, anchor="nw", fill="#FFFFFF", text=f"HP:{health}", font=("Arial", 10))
+                        draw_size = max(4, int(size * esp_box_scale))
+                        # rectangular proportions: short side horizontally (flipped)
+                        short_side = draw_size
+                        long_side = max(6, int(draw_size * 1.6))
+                        box_w = short_side
+                        box_h = long_side
+
+                        left = int(sx - box_w // 2)
+                        right = int(sx + box_w // 2)
+                        top = int(sy - box_h // 2)
+                        bottom = int(sy + box_h // 2)
+
+                        # clamp to screen bounds
+                        left = max(0, left)
+                        top = max(0, top)
+                        right = min(sw - 1, right)
+                        bottom = min(sh - 1, bottom)
+
+                        # draw box if enabled
+                        if esp_show_boxes:
+                            try:
+                                _overlay_canvas.create_rectangle(left, top, right, bottom, outline=esp_box_color, width=max(1, int(esp_box_outline_width)))
+                            except Exception:
+                                pass
+                        # HP текст если включено
+                        if esp_show_health:
+                            try:
+                                _overlay_canvas.create_text(left + 4, top - 12, anchor="nw", fill="#FFFFFF", text=f"HP:{health}", font=("Arial", 10))
+                            except Exception:
+                                pass
                     except Exception:
                         pass
-            except Exception:
-                pass
+            else:
+                # ESP отключён: показать демонстрационную серую коробку в центре (не трогаем память)
+                try:
+                    draw_size = max(8, int(min(cx, cy) * 0.18 * esp_box_scale))
+                    short_side = draw_size
+                    long_side = max(10, int(draw_size * 1.6))
+                    box_w = short_side
+                    box_h = long_side
+                    left = cx - box_w // 2
+                    right = cx + box_w // 2
+                    top = cy - box_h // 2
+                    bottom = cy + box_h // 2
+                    left = max(0, left)
+                    top = max(0, top)
+                    right = min(sw - 1, right)
+                    bottom = min(sh - 1, bottom)
+                    if esp_show_boxes:
+                        _overlay_canvas.create_rectangle(left, top, right, bottom, outline="#666666", width=max(1, int(esp_box_outline_width)))
+                    if esp_show_health:
+                        _overlay_canvas.create_text(left + 4, top - 12, anchor="nw", fill="#BBBBBB", text=f"HP:---", font=("Arial", 10))
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         # after main drawing draw the status box
         try:
