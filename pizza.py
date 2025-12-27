@@ -426,14 +426,32 @@ godmode_enabled = False
 health_final_addr = None
 
 def resolve_chain_simple(pm, base, chain):
-    addr = pm.read_longlong(base)
+    # use architecture-aware pointer reads and fail-safe checks
+    is_64 = pymem.process.is_64_bit(pm.process_handle)
+    read_ptr = pm.read_ulonglong if is_64 else pm.read_uint
+
+    try:
+        addr = read_ptr(base)
+    except Exception:
+        return None
+
+    # walk the chain safely
     for off in chain[:-1]:
-        addr = pm.read_longlong(addr + off)
+        if not addr:
+            return None
+        try:
+            addr = read_ptr(addr + off)
+        except Exception:
+            return None
+
+    if not addr:
+        return None
+
     return addr + chain[-1]
 
-health_final_addr = resolve_chain_simple(
-    pm, module_base + HEALTH_BASE_OFFSET, HEALTH_POINTER_CHAIN
-)
+health_final_addr = resolve_chain_simple(pm, module_base + HEALTH_BASE_OFFSET, HEALTH_POINTER_CHAIN)
+if health_final_addr is None:
+    print("Warning: health pointer chain could not be resolved (pointer is NULL or unreadable)")
 
 def godmode_loop():
     global godmode_enabled
@@ -753,7 +771,7 @@ def _toggle_menu():
 def _animate_alpha(start_alpha, end_alpha, duration=30, is_closing=False, on_complete=None):
     """Animate window alpha from start to end over duration milliseconds.
     Optionally call on_complete() after animation finishes."""
-    # увеличить число шагов для более плавной и чуть более медленной анимации
+    # увеличить число шагов для более плавного и чуть более медленного фейда
     steps = 12
     # сделать фейд чуть быстрее: уменьшить дефолт при использовании стандартного значения
     if duration == 60:
@@ -897,12 +915,11 @@ def unregister_global_hook():
 
 def on_exit():
     try:
-        # save default config on exit
+        # do not save config automatically on exit; user must save manually
         try:
-            save_config_default()
+            unregister_global_hook()
         except Exception:
             pass
-        unregister_global_hook()
     except Exception:
         pass
     try:
