@@ -13,7 +13,15 @@ import math
 from ctypes import wintypes
 import os
 
-sys.stdout.reconfigure(encoding='utf-8')
+try:
+    so = getattr(sys, "stdout", None)
+    if so is not None:
+        try:
+            so.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+except Exception:
+    pass
 
 # ---------------------------------------------------------
 # CONFIG
@@ -298,6 +306,65 @@ sh = ctypes.windll.user32.GetSystemMetrics(1)
 x = (sw - w) // 2
 y = (sh - h) // 2
 root.geometry(f"{w}x{h}+{x}+{y}")
+# try set icon early and create temporary toplevel before making window frameless
+# icon path and helper (defined before first use)
+ICON_PATH = os.path.join(os.path.dirname(__file__), "img", "pizza.ico")
+
+def _set_window_icon(win, icon_path):
+    try:
+        if not icon_path or not os.path.exists(icon_path):
+            return
+        try:
+            win.iconbitmap(icon_path)
+        except Exception:
+            pass
+        try:
+            from PIL import Image, ImageTk
+            img = Image.open(icon_path)
+            tk_img = ImageTk.PhotoImage(img)
+            try:
+                win.wm_iconphoto(False, tk_img)
+            except Exception:
+                try:
+                    win._icon_img = tk_img
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+try:
+    try:
+        _set_window_icon(root, ICON_PATH)
+    except Exception:
+        pass
+    try:
+        tb = tk.Toplevel(root)
+        tb.title("PMH")
+        tb.overrideredirect(False)
+        tb.attributes("-topmost", False)
+        try:
+            tb.geometry("1x1+-3000+0")
+        except Exception:
+            try:
+                tb.geometry("1x1+0+0")
+            except Exception:
+                pass
+        try:
+            _set_window_icon(tb, ICON_PATH)
+        except Exception:
+            pass
+        try:
+            tb.update()
+            tb.lower()
+            tb.after(100, lambda: tb.destroy())
+        except Exception:
+            pass
+    except Exception:
+        pass
+except Exception:
+    pass
 root.overrideredirect(True)            # no titlebar
 root.attributes("-topmost", True)      # keep on top
 try:
@@ -721,6 +788,11 @@ def _create_overlay():
         _overlay_canvas = tk.Canvas(_overlay, width=sw, height=sh, bg="black", highlightthickness=0)
         _overlay_canvas.pack()
         _overlay.update_idletasks()
+        # set overlay icon to match main app icon (if available)
+        try:
+            _set_window_icon(_overlay, ICON_PATH)
+        except Exception:
+            pass
         try:
             GWL_EXSTYLE = -20
             WS_EX_LAYERED = 0x80000
@@ -957,6 +1029,10 @@ def _create_right_panel_overlay():
         ov.attributes("-topmost", True)
         ov.geometry(f"{rw}x{rh}+{rx}+{ry}")
         ov.config(bg="black")
+        try:
+            _set_window_icon(ov, ICON_PATH)
+        except Exception:
+            pass
         try:
             ov.attributes("-alpha", 0.0)
         except Exception:
